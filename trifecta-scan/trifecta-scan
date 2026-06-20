@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""trifecta-scan — find the lethal trifecta in your agent's granted capabilities.
+
+The other agent-config linters check one file at a time: is THIS server pinned,
+does THIS permission look broad. But the attack that actually steals your data
+doesn't live in one tool — it lives in a *combination*. Simon Willison named it
+the "lethal trifecta": an agent is exposed to data theft the moment its granted
+capabilities cover all three of
+
+  1. PRIVATE   — it can read your private data (files, repos, db, mail)
+  2. UNTRUSTED — it ingests attacker-controllable content (web pages, issues, email)
+  3. EXFIL     — it can send data outward (arbitrary-URL fetch, push, post, send)
+
+Any single tool can carry more than one leg — an arbitrary-URL web-fetch is BOTH
+untrusted-input AND exfil; a shell is all three. So you can complete the trifecta
+with surprisingly few grants. A per-file linter never sees it, because no single
+line is wrong; the danger is the union.
+
+trifecta-scan reads .mcp.json and .claude/settings.json, classifies every granted
+capability into the three legs, and flags when the union covers all three — i.e.
+when a prompt injection in untrusted content could read your private data and
+ship it out. The fix is Meta's "rule of two": keep any session to <=2 legs, i.e.
+break one leg. It is deny-aware: a capability removed by permissions.deny does not
+count toward the trifecta. It also detects bypass mode (skipDangerousModePermission-
+Prompt / defaultMode: bypassPermissions) — with no allowlist, EVERY native tool runs
+unrestricted and Bash alone completes the trifecta, so we say so instead of reporting
+a misleading "nothing to scan."
+
+Prior art, credited: Simon Willison coined the lethal trifecta (2025-06-16) and
+Invariant Labs' Toxic Flow Analysis pioneered power-set, cross-tool trifecta
+detection for *MCP servers* (live). trifecta-scan's seam is one layer up: purely
+static, no server connection, and it folds in Claude Code's native tool allowlist
+(settings.json Read/Bash/WebFetch) — the grants the MCP-centric scanners don't model.
+
+Usage:
+  trifecta-scan [DIR ...]      # default: . — looks for ./.mcp.json + ./.claude/settings.json
+Exit 0 = trifecta NOT complete, 1 = complete (or a config failed to parse).
+
+Heuristic, not a proof: it reasons over capability *names*, deliberately erring
+toward naming the legs so you can see the shape of your own attack surface. It
+nets out whole-tool/whole-server deny rules but does not model fine-grained Bash
+subcommand denies (e.g. Bash(curl:*) still counts Bash as exfil-capable) — treat a
+clean result as "no obvious trifecta," not a proof of safety.
+"""
+import json
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+# The three legs.
+PRIVATE, UNTRUSTED, EXFIL = "private", "untrusted", "exfil"
+LEG_LABEL = {PRIVATE: "private data", UNTRUSTED: "untrusted input", EXFIL: "exfiltration"}
+LEG_COLOR = {PRIVATE: CYN, UNTRUSTED: YEL, EXFIL: RED}
+
+# --- Capability -> legs heuristics ------------------------------------------
+# Keyed by substrings matched against a capability's name (server name, command,
+# or package). A name can match several rules; the legs accumulate.
+NAME_RULES = [
+    # private-data readers
+    (r"filesystem|file-?system|\bfs\b|\bfiles?\b|local-?files", {PRIVATE}),
+    (r"postgres|mysql|sqlite|\bdb\b|database|mongo|redis|duckdb", {PRIVATE, EXFIL}),  # DB read + write-out
+    (r"gdrive|google-?drive|onedrive|dropbox|s3|bucket", {PRIVATE}),
+    (r"notion|obsidian|confluence|wiki", {PRIVATE}),
+    (r"memory|knowledge", {PRIVATE}),
+    # mail/chat = private data in, and a way out (send)
+    (r"gmail|email|imap|mail\b|outlook", {PRIVATE, UNTRUSTED, EXFIL}),
+    (r"slack|discord|telegram|teams\b", {PRIVATE, UNTRUSTED, EXFIL}),
+    # code hosts: your private repos (private) + outside issues/PRs (untrusted) + push (exfil)
+    (r"github|gitlab|bitbucket|\bgit\b", {PRIVATE, UNTRUSTED, EXFIL}),
+    (r"jira|linear|asana|trello", {PRIVATE, UNTRUSTED}),
+    # untrusted-content ingestors
+    (r"fetch|browse|browser|playwright|puppeteer|crawl|scrape|http|url|web-?(read|fetch|search)?", {UNTRUSTED, EXFIL}),
+    (r"search|brave|google|bing|duckduckgo|tavily|exa\b", {UNTRUSTED}),
+    # explicit egress
+    (r"webhook|sendmail|smtp|notify|post\b|publish|upload", {EXFIL}),
+]
+
+# Claude Code built-in tools (from .claude/settings.json permissions.allow).
+BUILTIN_LEGS = {
+    "Read": {PRIVATE}, "Glob": {PRIVATE}, "Grep": {PRIVATE}, "NotebookRead": {PRIVATE},
+    "Edit": {PRIVATE}, "Write": {PRIVATE}, "NotebookEdit": {PRIVATE},
+    "WebFetch": {UNTRUSTED, EXFIL}, "WebSearch": {UNTRUSTED},
+    "Bash": {PRIVATE, UNTRUSTED, EXFIL},  # read anything, curl in, curl/scp/push out
+}
+
+
+def legs_for_name(*names):
+    """Union of legs across every NAME_RULE that matches any of the given strings."""
+    blob = " ".join(n for n in names if n).lower()
+    legs = set()
+    for pat, ls in NAME_RULES:
+        if re.search(pat, blob):
+            legs |= ls
+    return legs
+
+
+def _deny_base(rule):
+    """A deny rule -> (kind, name) for capabilities we can SAFELY net out entirely.
+    Only WHOLE-tool / WHOLE-server denies count; a specific sub-deny is ignored so we
+    never falsely declare 'safe' (the dangerous direction for a security check):
+      'WebFetch'                       -> ('builtin','WebFetch')
+      'Bash(curl:*)'                   -> (None,None)   # only curl denied, Bash stays
+      'mcp__fetch'  / 'mcp__fetch__*'  -> ('server','fetch')
+      'mcp__github__create_pull_request'-> (None,None)  # other github tools remain
+    """
+    r = str(rule).strip()
+    if "(" in r:                       # scoped builtin — too specific to drop the whole tool
+        return (None, None)
+    if r.startswith("mcp__"):
+        parts = r.split("__")
+        if len(parts) == 2 or (len(parts) >= 3 and parts[2] == "*"):
+            return ("server", parts[1])
+        return (None, None)            # specific MCP tool deny — keep the server flagged
+    return ("builtin", r)
+
+
+def collect(directory):
+    """Return (capabilities, errors, denied, bypass).
+    capabilities: list of (display_name, source, legs:set); denied: count netted out;
+    bypass: True if the config grants the native toolset unrestricted (no allowlist)."""
+    caps, errors = [], []
+    denied_servers, denied_builtins = set(), set()
+    denied = 0
+    bypass = False
+
+    # Read deny rules FIRST so they can net out capabilities from either source.
+    settings = os.path.join(directory, ".claude", "settings.json")
+    settings_doc = None
+    if os.path.isfile(settings):
+        try:
+            settings_doc = json.loads(open(settings, encoding="utf-8", errors="replace").read())
+            perms = (settings_doc.get("permissions") or {})
+            for rule in (perms.get("deny", []) if isinstance(perms.get("deny"), list) else []):
+                if isinstance(rule, str):
+                    kind, name = _deny_base(rule)
+                    if kind == "server":
+                        denied_servers.add(name)
+                    elif kind == "builtin":
+                        denied_builtins.add(name)
+        except json.JSONDecodeError as e:
+            errors.append((settings, f"invalid JSON ({e.msg} at line {e.lineno})"))
+
+    mcp = os.path.join(directory, ".mcp.json")
+    if os.path.isfile(mcp):
+        try:
+            doc = json.loads(open(mcp, encoding="utf-8", errors="replace").read())
+            srv = {}
+            for k in ("mcpServers", "servers"):
+                if isinstance(doc.get(k), dict):
+                    srv = doc[k]; break
+            for name, cfg in srv.items():
+                if name in denied_servers:
+                    denied += 1; continue
+                cmd = pkg = ""
+                if isinstance(cfg, dict):
+                    cmd = str(cfg.get("command", "") or "")
+                    args = cfg.get("args", []) if isinstance(cfg.get("args"), list) else []
+                    pkg = next((str(a) for a in args if isinstance(a, str) and not a.startswith("-")), "")
+                    if cfg.get("url") or cfg.get("type") in ("sse", "http", "streamable-http"):
+                        # a remote server is also an outbound channel by construction
+                        pass
+                legs = legs_for_name(name, cmd, pkg)
+                if not legs:
+                    # an unknown server: we can't classify it, but it IS a tool surface.
+                    legs = set()
+                caps.append((name, "mcp", legs))
+        except json.JSONDecodeError as e:
+            errors.append((mcp, f"invalid JSON ({e.msg} at line {e.lineno})"))
+
+    if settings_doc is not None:
+        perms = (settings_doc.get("permissions") or {})
+        allow = perms.get("allow", []) if isinstance(perms.get("allow"), list) else []
+        # Bypass mode = the agent runs every tool without an allowlist gate. The native
+        # toolset (incl. Bash = all three legs) is then granted regardless of `allow`, so
+        # an allowlist-only scan would UNDER-report. Detect it and synthesize the toolset.
+        if settings_doc.get("skipDangerousModePermissionPrompt") or perms.get("defaultMode") == "bypassPermissions":
+            if not allow:                       # an explicit allowlist still narrows it; honor that
+                bypass = True
+                for tool, legs in BUILTIN_LEGS.items():
+                    if tool not in denied_builtins:
+                        caps.append((tool, "bypass", set(legs)))
+        seen_perm = set()
+        for rule in allow:
+            if not isinstance(rule, str):
+                continue
+            tool = rule.split("(", 1)[0].strip()      # "Bash(git push:*)" -> "Bash"
+            if tool.startswith("mcp__"):               # mcp__github__create_issue -> github
+                server = tool.split("__")[1] if len(tool.split("__")) > 1 else tool
+                if server in denied_servers:
+                    denied += 1; continue
+                if server in seen_perm:                 # collapse many tool-grants of one server
+                    continue
+                seen_perm.add(server)
+                caps.append((server, "perm", legs_for_name(server)))
+            elif tool in BUILTIN_LEGS:
+                if tool in denied_builtins:
+                    denied += 1; continue
+                caps.append((tool, "tool", set(BUILTIN_LEGS[tool])))
+
+    return caps, errors, denied, bypass
+
+
+def fmt_legs(legs):
+    return " · ".join(f"{LEG_COLOR[l]}{l}{RST}" for l in (PRIVATE, UNTRUSTED, EXFIL) if l in legs) or f"{DIM}—{RST}"
+
+
+def scan(directory):
+    caps, errors, denied, bypass = collect(directory)
+    print(f"trifecta-scan — {directory}")
+    if bypass:
+        print(f"\n  {YEL}● WARN{RST} permissions are BYPASSED (no allowlist) — every tool runs unrestricted.")
+        print(f"         {DIM}Bash alone covers all three legs, so the trifecta is complete regardless")
+        print(f"         of which servers you wire up. Treating the full native toolset as granted.{RST}")
+    if errors:
+        for path, msg in errors:
+            print(f"\n  {RED}● HIGH{RST} invalid JSON in {os.path.relpath(path, directory)} — {msg}")
+            print(f"         {DIM}the agent can't load it; classify the rest by hand.{RST}")
+    if not caps:
+        if not errors:
+            print(f"\n  {DIM}no .mcp.json or .claude/settings.json capabilities here — nothing to scan.{RST}")
+        return 1 if errors else 0
+
+    denynote = f"{DIM}, {denied} netted out by deny rules{RST}" if denied else ""
+    print(f"  {DIM}{len(caps)} capabilit{'y' if len(caps)==1 else 'ies'} granted{RST}{denynote}\n")
+    width = max(len(n) for n, _, _ in caps)
+    for name, source, legs in sorted(caps, key=lambda c: (-len(c[2]), c[0])):
+        both = UNTRUSTED in legs and EXFIL in legs
+        tag = f"  {DIM}← one tool is both the untrusted input AND the exfil channel{RST}" if both else ""
+        print(f"    {name.ljust(width)}  {DIM}({source}){RST}  [{fmt_legs(legs)}]{tag}")
+
+    union = set().union(*(legs for _, _, legs in caps)) if caps else set()
+    by_leg = {l: [n for n, _, lg in caps if l in lg] for l in (PRIVATE, UNTRUSTED, EXFIL)}
+    print()
+
+    if union >= {PRIVATE, UNTRUSTED, EXFIL}:
+        print(f"  {RED}● HIGH{RST} LETHAL TRIFECTA COMPLETE — all three legs are reachable in one session:")
+        for l in (PRIVATE, UNTRUSTED, EXFIL):
+            print(f"         {LEG_COLOR[l]}{LEG_LABEL[l]:<16}{RST}: {', '.join(by_leg[l])}")
+        print(f"\n         {DIM}A prompt injection in untrusted content can read your private data")
+        print(f"         and send it out — the classic agent data-exfiltration path.{RST}")
+        print(f"         {DIM}Defuse it with the 'rule of two': break ANY one leg. Easiest is usually")
+        print(f"         the exfil sink — drop arbitrary-URL fetch, or pin egress to an allowlist.{RST}\n")
+        return 1
+
+    missing = [LEG_LABEL[l] for l in (PRIVATE, UNTRUSTED, EXFIL) if l not in union]
+    have = [LEG_LABEL[l] for l in (PRIVATE, UNTRUSTED, EXFIL) if l in union]
+    print(f"  {GRN}✓ trifecta NOT complete.{RST} present: {', '.join(have) or 'none'}.")
+    print(f"         {DIM}missing leg(s): {', '.join(missing)} — adding any of these would complete it.{RST}\n")
+    return 0
+
+
+def main():
+    dirs = [a for a in sys.argv[1:] if not a.startswith("-")] or ["."]
+    rc = 0
+    for d in dirs:
+        if not os.path.isdir(d):
+            sys.stderr.write(f"trifecta-scan: not a directory: {d}\n"); rc = 1; continue
+        rc = scan(d) or rc
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()

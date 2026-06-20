@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""context-lint — is your CLAUDE.md helping the agent, or quietly taxing it?
+
+CLAUDE.md / AGENTS.md is loaded into *every* session, so its cost is paid every
+turn and its mistakes mislead every run. Context engineering is the 2026 leverage
+point — the model is rarely the bottleneck, the context usually is. context-lint
+audits the file for the three things that actually hurt:
+
+  • bloat        — frontier models follow ~150-200 instructions reliably; past that,
+                   later instructions get dropped, and you pay the tokens every session.
+  • stale refs   — a path the file points at that doesn't exist sends the agent
+                   looking for code that isn't there.
+  • missing      — no build/test commands is the single most useful thing to omit.
+
+Usage:
+  context-lint [CLAUDE.md|AGENTS.md ...]   # default: ./CLAUDE.md and ./AGENTS.md if present
+
+Exit 0 = healthy, 1 = at least one finding.
+"""
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = DIM = RST = ""
+SEV = {"HIGH": RED, "WARN": YEL, "INFO": "\033[36m" if RST else ""}
+
+INSTR_WARN = 150   # frontier-model "reliably followed" ceiling
+INSTR_HIGH = 250
+# a path-ish reference: has a slash and a file-ish suffix (skip urls/globs/anchors)
+PATH_RE = re.compile(r"`([^`\n]+?)`")
+LOOKS_PATH = re.compile(r"^[\w./~-]+/[\w./-]+\.\w{1,6}$")
+# whole-word so "notest"/"latest" don't masquerade as a test command
+TEST_RE = re.compile(r"\b(test|pytest|jest|vitest|cargo|go test|npm run|make|build|"
+                     r"lint|tsc|mypy|ruff|gradlew|mvn|task)\b", re.I)
+
+
+def count_instructions(lines):
+    """Bullets, numbered items, and imperative sentences — the things the model must obey."""
+    n = 0
+    for ln in lines:
+        s = ln.strip()
+        if not s or s.startswith("#") or s.startswith("```"):
+            continue
+        if re.match(r"^([-*+]|\d+[.)])\s+", s):       # list item
+            n += 1
+        elif s.endswith(".") and len(s.split()) <= 30:  # short directive sentence
+            n += 1
+    return n
+
+
+def audit(path, repo_root):
+    findings = []
+    text = open(path, encoding="utf-8", errors="replace").read()
+    lines = text.splitlines()
+    words = len(text.split())
+    toks = len(text) // 4
+    instr = count_instructions(lines)
+    base = os.path.dirname(os.path.abspath(path)) or "."
+
+    # 1. bloat
+    if instr >= INSTR_HIGH:
+        findings.append(("HIGH", f"{instr} instructions — well past the ~{INSTR_WARN} a model "
+                         f"follows reliably; later ones get silently dropped",
+                         "move task-specific / one-off rules out; link to docs/ instead of inlining."))
+    elif instr >= INSTR_WARN:
+        findings.append(("WARN", f"{instr} instructions — near the ~{INSTR_WARN} reliability ceiling",
+                         "trim to the universally-applicable rules; this file loads every session."))
+    if toks >= 2000:
+        findings.append(("WARN", f"~{toks:,} tokens loaded into every session (≈{words:,} words)",
+                         "every turn pays this. Keep CLAUDE.md lean; push detail to skills / docs/."))
+
+    # 2. stale path references
+    referenced = set()
+    for m in PATH_RE.finditer(text):
+        cand = m.group(1).strip()
+        if LOOKS_PATH.match(cand) and not cand.startswith(("http", "<", "$")):
+            referenced.add(cand)
+    missing = []
+    for ref in sorted(referenced):
+        p = os.path.expanduser(ref)
+        if not (os.path.exists(p) or os.path.exists(os.path.join(base, ref))
+                or os.path.exists(os.path.join(repo_root, ref))):
+            missing.append(ref)
+    if missing:
+        findings.append(("HIGH", f"{len(missing)} referenced path(s) don't exist — the agent will "
+                         f"chase code that isn't there",
+                         "fix or remove: " + ", ".join(f"`{m}`" for m in missing[:6])))
+
+    # 3. missing essentials
+    if not TEST_RE.search(text):
+        findings.append(("INFO", "no build/test/lint command found",
+                         "the highest-value thing to put in CLAUDE.md is how to build and test."))
+    return findings, dict(instr=instr, toks=toks, words=words)
+
+
+def discover(args):
+    if args:
+        return args
+    return [f for f in ("CLAUDE.md", "AGENTS.md") if os.path.isfile(f)]
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    files = discover(args)
+    if not files:
+        print("context-lint: no CLAUDE.md or AGENTS.md here — "
+              "a project this size may want one (build/test commands + a few house rules).")
+        sys.exit(0)
+    repo_root = os.getcwd()
+    bad = 0
+    for path in files:
+        if not os.path.isfile(path):
+            sys.stderr.write(f"context-lint: no such file: {path}\n"); bad = 1; continue
+        findings, m = audit(path, repo_root)
+        head = f"context-lint — {path}  {DIM}({m['instr']} instructions · ~{m['toks']:,} tokens/session){RST}"
+        print(head + "\n")
+        if not findings:
+            print(f"  {GRN}✓ lean and current — nothing to trim.{RST}\n")
+            continue
+        bad = 1
+        order = {"HIGH": 0, "WARN": 1, "INFO": 2}
+        for sev, title, fix in sorted(findings, key=lambda f: order[f[0]]):
+            print(f"  {SEV[sev]}● {sev:<5}{RST} {title}")
+            print(f"          {DIM}{fix}{RST}")
+        print()
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()

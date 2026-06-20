@@ -1,0 +1,2702 @@
+[
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 23,
+    "agent": false,
+    "size": 11,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 22,
+    "agent": false,
+    "size": 72,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 21,
+    "agent": false,
+    "size": 980,
+    "files": 10,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 20,
+    "agent": false,
+    "size": 34,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 19,
+    "agent": false,
+    "size": 16,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.7333333333333333
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 18,
+    "agent": false,
+    "size": 11,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 17,
+    "agent": false,
+    "size": 13,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 16,
+    "agent": false,
+    "size": 4914,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 15,
+    "agent": false,
+    "size": 103,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 14,
+    "agent": false,
+    "size": 1975,
+    "files": 11,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 13,
+    "agent": true,
+    "size": 14,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 12,
+    "agent": true,
+    "size": 100,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 11,
+    "agent": true,
+    "size": 1432,
+    "files": 5,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 10,
+    "agent": true,
+    "size": 4774,
+    "files": 7,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 9,
+    "agent": true,
+    "size": 50,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 8,
+    "agent": true,
+    "size": 39,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 7,
+    "agent": true,
+    "size": 550,
+    "files": 21,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 6,
+    "agent": true,
+    "size": 2343,
+    "files": 9,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 5,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.5666666666666667
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 4,
+    "agent": true,
+    "size": 37,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 3,
+    "agent": true,
+    "size": 82,
+    "files": 5,
+    "review": 0,
+    "ttm": 0.55
+  },
+  {
+    "repo": "chefliujmf/gymapp",
+    "num": 2,
+    "agent": false,
+    "size": 48,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.65
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 8,
+    "agent": true,
+    "size": 24,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 7,
+    "agent": true,
+    "size": 73,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 6,
+    "agent": false,
+    "size": 37,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 5,
+    "agent": false,
+    "size": 186,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 4,
+    "agent": false,
+    "size": 397,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 3,
+    "agent": false,
+    "size": 45,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.13333333333333333
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 2,
+    "agent": false,
+    "size": 261,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.48333333333333334
+  },
+  {
+    "repo": "Titleapp/titleapp-platform",
+    "num": 1,
+    "agent": false,
+    "size": 23419,
+    "files": 204,
+    "review": 0,
+    "ttm": 1.2166666666666666
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 15,
+    "agent": true,
+    "size": 9,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 14,
+    "agent": true,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.1
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 13,
+    "agent": true,
+    "size": 37,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 12,
+    "agent": true,
+    "size": 14,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 11,
+    "agent": false,
+    "size": 41,
+    "files": 3,
+    "review": 1,
+    "ttm": 1.1333333333333333
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 7,
+    "agent": false,
+    "size": 453,
+    "files": 9,
+    "review": 1,
+    "ttm": 19.266666666666666
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 9,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 1,
+    "ttm": 2.7333333333333334
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 10,
+    "agent": false,
+    "size": 235,
+    "files": 6,
+    "review": 1,
+    "ttm": 485.51666666666665
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 8,
+    "agent": false,
+    "size": 304,
+    "files": 7,
+    "review": 1,
+    "ttm": 11.566666666666666
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 6,
+    "agent": false,
+    "size": 16,
+    "files": 1,
+    "review": 1,
+    "ttm": 50.21666666666667
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 5,
+    "agent": false,
+    "size": 180,
+    "files": 4,
+    "review": 1,
+    "ttm": 1.85
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 4,
+    "agent": false,
+    "size": 86,
+    "files": 6,
+    "review": 1,
+    "ttm": 2.8666666666666667
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 3,
+    "agent": false,
+    "size": 40,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.55
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 2,
+    "agent": false,
+    "size": 300,
+    "files": 5,
+    "review": 1,
+    "ttm": 5.833333333333333
+  },
+  {
+    "repo": "Think2grow/bluelogicwebsite",
+    "num": 1,
+    "agent": false,
+    "size": 610,
+    "files": 32,
+    "review": 1,
+    "ttm": 33.13333333333333
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 29,
+    "agent": false,
+    "size": 7,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.35
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 28,
+    "agent": false,
+    "size": 3,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.3666666666666667
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 27,
+    "agent": false,
+    "size": 83,
+    "files": 2,
+    "review": 0,
+    "ttm": 1.5666666666666667
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 26,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.5833333333333333
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 25,
+    "agent": false,
+    "size": 236,
+    "files": 5,
+    "review": 0,
+    "ttm": 1.5833333333333333
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 24,
+    "agent": true,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.3666666666666667
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 23,
+    "agent": false,
+    "size": 188,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.35
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 22,
+    "agent": false,
+    "size": 57,
+    "files": 6,
+    "review": 0,
+    "ttm": 1.5833333333333333
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 21,
+    "agent": false,
+    "size": 200,
+    "files": 8,
+    "review": 0,
+    "ttm": 1.5666666666666667
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 20,
+    "agent": false,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.5833333333333333
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 19,
+    "agent": false,
+    "size": 34,
+    "files": 4,
+    "review": 0,
+    "ttm": 1.7
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 18,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.5666666666666667
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 17,
+    "agent": false,
+    "size": 47,
+    "files": 3,
+    "review": 0,
+    "ttm": 1.55
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 16,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.5
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 15,
+    "agent": false,
+    "size": 26,
+    "files": 4,
+    "review": 0,
+    "ttm": 1.35
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 14,
+    "agent": false,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.5166666666666666
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 13,
+    "agent": true,
+    "size": 4,
+    "files": 2,
+    "review": 0,
+    "ttm": 1.3
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 12,
+    "agent": false,
+    "size": 4,
+    "files": 2,
+    "review": 0,
+    "ttm": 1.5
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 11,
+    "agent": false,
+    "size": 33,
+    "files": 2,
+    "review": 0,
+    "ttm": 1.2666666666666666
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 10,
+    "agent": false,
+    "size": 178,
+    "files": 4,
+    "review": 0,
+    "ttm": 1.4833333333333334
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 9,
+    "agent": false,
+    "size": 17,
+    "files": 5,
+    "review": 0,
+    "ttm": 1.5333333333333334
+  },
+  {
+    "repo": "johann-b82/ecom-kpi-platform",
+    "num": 8,
+    "agent": false,
+    "size": 34,
+    "files": 9,
+    "review": 0,
+    "ttm": 1.6666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 555,
+    "agent": false,
+    "size": 55,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 554,
+    "agent": true,
+    "size": 53,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 553,
+    "agent": false,
+    "size": 201,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 552,
+    "agent": true,
+    "size": 105,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 551,
+    "agent": false,
+    "size": 117,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.11666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 550,
+    "agent": true,
+    "size": 41,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 549,
+    "agent": true,
+    "size": 78,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 548,
+    "agent": true,
+    "size": 46,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 547,
+    "agent": false,
+    "size": 20,
+    "files": 5,
+    "review": 1,
+    "ttm": 0.16666666666666666
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 546,
+    "agent": true,
+    "size": 12,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.13333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 545,
+    "agent": false,
+    "size": 13,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 544,
+    "agent": true,
+    "size": 149,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.13333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 543,
+    "agent": false,
+    "size": 20,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 542,
+    "agent": false,
+    "size": 35,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 541,
+    "agent": false,
+    "size": 36,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 540,
+    "agent": false,
+    "size": 115,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.13333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 539,
+    "agent": false,
+    "size": 68,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 538,
+    "agent": false,
+    "size": 22,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 537,
+    "agent": false,
+    "size": 982,
+    "files": 8,
+    "review": 1,
+    "ttm": 0.1
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 536,
+    "agent": false,
+    "size": 51,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 535,
+    "agent": false,
+    "size": 35,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "zoran-star/bam-os-requirements",
+    "num": 534,
+    "agent": false,
+    "size": 118,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 17,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 16,
+    "agent": true,
+    "size": 41,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 15,
+    "agent": false,
+    "size": 14,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 14,
+    "agent": true,
+    "size": 12,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 13,
+    "agent": false,
+    "size": 44,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 12,
+    "agent": false,
+    "size": 5,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 11,
+    "agent": false,
+    "size": 42,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 10,
+    "agent": true,
+    "size": 4,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 9,
+    "agent": true,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 8,
+    "agent": true,
+    "size": 81,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 7,
+    "agent": true,
+    "size": 343,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 6,
+    "agent": false,
+    "size": 162,
+    "files": 5,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 5,
+    "agent": true,
+    "size": 30,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 4,
+    "agent": false,
+    "size": 85,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 3,
+    "agent": false,
+    "size": 25,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 2,
+    "agent": false,
+    "size": 3,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.25
+  },
+  {
+    "repo": "wazyquinin/sentinel-brain",
+    "num": 1,
+    "agent": false,
+    "size": 28,
+    "files": 5,
+    "review": 0,
+    "ttm": 6.833333333333333
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 16,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 15,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 14,
+    "agent": true,
+    "size": 4,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.85
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 13,
+    "agent": false,
+    "size": 10,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.11666666666666667
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 12,
+    "agent": false,
+    "size": 21,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 11,
+    "agent": false,
+    "size": 55,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.1
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 10,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.1
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 9,
+    "agent": false,
+    "size": 25,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.11666666666666667
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 8,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 7,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.08333333333333333
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 6,
+    "agent": false,
+    "size": 8,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 5,
+    "agent": false,
+    "size": 495,
+    "files": 7,
+    "review": 0,
+    "ttm": 6.416666666666667
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 4,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.3
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 3,
+    "agent": false,
+    "size": 22,
+    "files": 1,
+    "review": 0,
+    "ttm": 3.4166666666666665
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 2,
+    "agent": false,
+    "size": 81,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.4
+  },
+  {
+    "repo": "NiceFreak/nicefreak.github.io",
+    "num": 1,
+    "agent": false,
+    "size": 690,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.2833333333333333
+  },
+  {
+    "repo": "aigovops-foundation/aigovops-vendor-rfi",
+    "num": 3,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.26666666666666666
+  },
+  {
+    "repo": "aigovops-foundation/aigovops-vendor-rfi",
+    "num": 2,
+    "agent": true,
+    "size": 4,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.26666666666666666
+  },
+  {
+    "repo": "aigovops-foundation/aigovops-vendor-rfi",
+    "num": 1,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.26666666666666666
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 10,
+    "agent": false,
+    "size": 69,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 9,
+    "agent": false,
+    "size": 57,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 8,
+    "agent": false,
+    "size": 473,
+    "files": 17,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 7,
+    "agent": false,
+    "size": 466,
+    "files": 10,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 6,
+    "agent": false,
+    "size": 818,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 5,
+    "agent": false,
+    "size": 201,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 4,
+    "agent": true,
+    "size": 85,
+    "files": 7,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 3,
+    "agent": true,
+    "size": 433,
+    "files": 8,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 2,
+    "agent": false,
+    "size": 1170,
+    "files": 12,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "kanishkpatel1995/agent-harness",
+    "num": 1,
+    "agent": false,
+    "size": 4186,
+    "files": 49,
+    "review": 0,
+    "ttm": 0.23333333333333334
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 7,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 6,
+    "agent": false,
+    "size": 64,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 5,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 4,
+    "agent": false,
+    "size": 2,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 3,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 2,
+    "agent": false,
+    "size": 18,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "mattsilv/itw-cli",
+    "num": 1,
+    "agent": false,
+    "size": 0,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12595,
+    "agent": false,
+    "size": 4,
+    "files": 2,
+    "review": 2,
+    "ttm": 4.7
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12594,
+    "agent": true,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.36666666666666664
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12593,
+    "agent": false,
+    "size": 65,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12592,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12591,
+    "agent": false,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12590,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12589,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12588,
+    "agent": false,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12586,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 2,
+    "ttm": 7.25
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12585,
+    "agent": false,
+    "size": 278,
+    "files": 9,
+    "review": 2,
+    "ttm": 22.616666666666667
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12584,
+    "agent": false,
+    "size": 27,
+    "files": 3,
+    "review": 1,
+    "ttm": 6.883333333333334
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12583,
+    "agent": false,
+    "size": 11,
+    "files": 1,
+    "review": 2,
+    "ttm": 5.983333333333333
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12582,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.25
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12581,
+    "agent": false,
+    "size": 4,
+    "files": 1,
+    "review": 0,
+    "ttm": 1.7666666666666666
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12579,
+    "agent": false,
+    "size": 49,
+    "files": 2,
+    "review": 2,
+    "ttm": 8.683333333333334
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12580,
+    "agent": false,
+    "size": 32,
+    "files": 4,
+    "review": 0,
+    "ttm": 3.9
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12578,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 2,
+    "ttm": 12.55
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12577,
+    "agent": false,
+    "size": 4,
+    "files": 2,
+    "review": 2,
+    "ttm": 12.166666666666666
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12576,
+    "agent": false,
+    "size": 27,
+    "files": 4,
+    "review": 1,
+    "ttm": 6.4
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 11663,
+    "agent": false,
+    "size": 302,
+    "files": 10,
+    "review": 2,
+    "ttm": 44810.7
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12575,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 2,
+    "ttm": 4.366666666666666
+  },
+  {
+    "repo": "rwlove/home-ops",
+    "num": 12574,
+    "agent": false,
+    "size": 2,
+    "files": 1,
+    "review": 2,
+    "ttm": 4.666666666666667
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 23,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 22,
+    "agent": true,
+    "size": 6,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 21,
+    "agent": true,
+    "size": 16,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 20,
+    "agent": false,
+    "size": 71,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 19,
+    "agent": false,
+    "size": 15,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 18,
+    "agent": false,
+    "size": 53,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 17,
+    "agent": false,
+    "size": 6,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 16,
+    "agent": false,
+    "size": 24,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 15,
+    "agent": false,
+    "size": 77,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 14,
+    "agent": false,
+    "size": 14,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 13,
+    "agent": false,
+    "size": 218,
+    "files": 5,
+    "review": 1,
+    "ttm": 0.26666666666666666
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 12,
+    "agent": false,
+    "size": 268,
+    "files": 29,
+    "review": 1,
+    "ttm": 0.2
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 11,
+    "agent": false,
+    "size": 151,
+    "files": 4,
+    "review": 1,
+    "ttm": 0.25
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 10,
+    "agent": false,
+    "size": 331,
+    "files": 7,
+    "review": 1,
+    "ttm": 0.23333333333333334
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 9,
+    "agent": false,
+    "size": 39,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.2
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 8,
+    "agent": false,
+    "size": 67,
+    "files": 4,
+    "review": 1,
+    "ttm": 0.2
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 7,
+    "agent": false,
+    "size": 166,
+    "files": 5,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 6,
+    "agent": false,
+    "size": 32,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 5,
+    "agent": false,
+    "size": 54,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 4,
+    "agent": false,
+    "size": 54,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 3,
+    "agent": false,
+    "size": 119,
+    "files": 5,
+    "review": 1,
+    "ttm": 29.766666666666666
+  },
+  {
+    "repo": "BFlinkDesign/keyedin-monitor",
+    "num": 2,
+    "agent": false,
+    "size": 1486,
+    "files": 25,
+    "review": 2,
+    "ttm": 129.53333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 20,
+    "agent": false,
+    "size": 86,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 19,
+    "agent": true,
+    "size": 62,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 18,
+    "agent": false,
+    "size": 54,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 17,
+    "agent": false,
+    "size": 10,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 16,
+    "agent": false,
+    "size": 26,
+    "files": 4,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 15,
+    "agent": false,
+    "size": 64,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 14,
+    "agent": true,
+    "size": 61,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 13,
+    "agent": false,
+    "size": 4,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 12,
+    "agent": false,
+    "size": 281,
+    "files": 7,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 11,
+    "agent": false,
+    "size": 29,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 10,
+    "agent": false,
+    "size": 155,
+    "files": 5,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 9,
+    "agent": false,
+    "size": 178,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 8,
+    "agent": false,
+    "size": 71,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.21666666666666667
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 7,
+    "agent": false,
+    "size": 363,
+    "files": 6,
+    "review": 1,
+    "ttm": 0.36666666666666664
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 6,
+    "agent": false,
+    "size": 47,
+    "files": 1,
+    "review": 1,
+    "ttm": 10.766666666666667
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 5,
+    "agent": false,
+    "size": 6308,
+    "files": 20,
+    "review": 1,
+    "ttm": 0.16666666666666666
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 4,
+    "agent": false,
+    "size": 73,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.9
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 3,
+    "agent": false,
+    "size": 1,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.2
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 2,
+    "agent": false,
+    "size": 108,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.15
+  },
+  {
+    "repo": "josephfernandez/softwarejoe.com",
+    "num": 1,
+    "agent": false,
+    "size": 1137,
+    "files": 15,
+    "review": 0,
+    "ttm": 7.316666666666666
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1852,
+    "agent": false,
+    "size": 5760,
+    "files": 32,
+    "review": 1,
+    "ttm": 62.28333333333333
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1851,
+    "agent": false,
+    "size": 4863,
+    "files": 21,
+    "review": 1,
+    "ttm": 4.883333333333334
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1850,
+    "agent": false,
+    "size": 3060,
+    "files": 11,
+    "review": 1,
+    "ttm": 4.533333333333333
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1849,
+    "agent": false,
+    "size": 2524,
+    "files": 11,
+    "review": 1,
+    "ttm": 8.3
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1848,
+    "agent": false,
+    "size": 11459,
+    "files": 46,
+    "review": 1,
+    "ttm": 96.31666666666666
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1847,
+    "agent": false,
+    "size": 3906,
+    "files": 16,
+    "review": 1,
+    "ttm": 40.4
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1845,
+    "agent": false,
+    "size": 446,
+    "files": 5,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1846,
+    "agent": true,
+    "size": 54,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1844,
+    "agent": true,
+    "size": 351,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1838,
+    "agent": true,
+    "size": 184,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1843,
+    "agent": true,
+    "size": 470,
+    "files": 4,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1842,
+    "agent": true,
+    "size": 285,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1841,
+    "agent": false,
+    "size": 239,
+    "files": 3,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1840,
+    "agent": true,
+    "size": 517,
+    "files": 5,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1839,
+    "agent": true,
+    "size": 281,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1837,
+    "agent": true,
+    "size": 430,
+    "files": 4,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1836,
+    "agent": true,
+    "size": 256,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1835,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1834,
+    "agent": true,
+    "size": 641,
+    "files": 7,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1833,
+    "agent": true,
+    "size": 1525,
+    "files": 13,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1832,
+    "agent": true,
+    "size": 280,
+    "files": 4,
+    "review": 1,
+    "ttm": 0.05
+  },
+  {
+    "repo": "ganeshnaik166/equipseva-android",
+    "num": 1831,
+    "agent": true,
+    "size": 60,
+    "files": 2,
+    "review": 1,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 13,
+    "agent": true,
+    "size": 351,
+    "files": 5,
+    "review": 0,
+    "ttm": 1.2166666666666666
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 12,
+    "agent": true,
+    "size": 353,
+    "files": 5,
+    "review": 0,
+    "ttm": 1.5833333333333333
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 11,
+    "agent": false,
+    "size": 293,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 10,
+    "agent": false,
+    "size": 46,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 9,
+    "agent": false,
+    "size": 107,
+    "files": 6,
+    "review": 0,
+    "ttm": 1.85
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 8,
+    "agent": false,
+    "size": 4,
+    "files": 2,
+    "review": 0,
+    "ttm": 1.7333333333333334
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 7,
+    "agent": false,
+    "size": 361,
+    "files": 12,
+    "review": 0,
+    "ttm": 2.6
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 6,
+    "agent": false,
+    "size": 898,
+    "files": 23,
+    "review": 1,
+    "ttm": 10.183333333333334
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 5,
+    "agent": false,
+    "size": 1481,
+    "files": 29,
+    "review": 0,
+    "ttm": 2.1
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 4,
+    "agent": false,
+    "size": 102,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 3,
+    "agent": false,
+    "size": 95,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 2,
+    "agent": false,
+    "size": 61,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "Daeseon-AI-Factory/docvault",
+    "num": 1,
+    "agent": false,
+    "size": 2348,
+    "files": 27,
+    "review": 0,
+    "ttm": 73.75
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 177,
+    "agent": false,
+    "size": 42,
+    "files": 21,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 176,
+    "agent": false,
+    "size": 2052,
+    "files": 10,
+    "review": 0,
+    "ttm": 0.06666666666666667
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 175,
+    "agent": false,
+    "size": 232,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 174,
+    "agent": false,
+    "size": 736,
+    "files": 16,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 173,
+    "agent": false,
+    "size": 124,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 172,
+    "agent": false,
+    "size": 82,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 171,
+    "agent": true,
+    "size": 2,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 170,
+    "agent": false,
+    "size": 40,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 169,
+    "agent": true,
+    "size": 106,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 168,
+    "agent": false,
+    "size": 69,
+    "files": 5,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 167,
+    "agent": false,
+    "size": 30,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 166,
+    "agent": true,
+    "size": 21,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 165,
+    "agent": false,
+    "size": 7,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 164,
+    "agent": false,
+    "size": 48,
+    "files": 7,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "fparareda/scrape_info",
+    "num": 163,
+    "agent": false,
+    "size": 1313,
+    "files": 28,
+    "review": 0,
+    "ttm": 0.26666666666666666
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 63,
+    "agent": false,
+    "size": 27,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 62,
+    "agent": false,
+    "size": 6,
+    "files": 71,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 61,
+    "agent": false,
+    "size": 2038,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 60,
+    "agent": true,
+    "size": 5,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 59,
+    "agent": false,
+    "size": 6,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 58,
+    "agent": false,
+    "size": 12,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 57,
+    "agent": false,
+    "size": 43,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 56,
+    "agent": false,
+    "size": 57,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 55,
+    "agent": false,
+    "size": 19,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 54,
+    "agent": false,
+    "size": 21,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 53,
+    "agent": false,
+    "size": 23,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 52,
+    "agent": true,
+    "size": 1,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 51,
+    "agent": false,
+    "size": 9,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 50,
+    "agent": false,
+    "size": 32,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 49,
+    "agent": false,
+    "size": 48,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 48,
+    "agent": false,
+    "size": 9,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 47,
+    "agent": false,
+    "size": 40,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.18333333333333332
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 46,
+    "agent": false,
+    "size": 18,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.16666666666666666
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 45,
+    "agent": false,
+    "size": 50,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.16666666666666666
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 44,
+    "agent": false,
+    "size": 30,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.15
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 43,
+    "agent": false,
+    "size": 12,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.13333333333333333
+  },
+  {
+    "repo": "wegofwd2020-hub/mambakkam-net",
+    "num": 42,
+    "agent": false,
+    "size": 775,
+    "files": 2,
+    "review": 0,
+    "ttm": 88.46666666666667
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 531,
+    "agent": false,
+    "size": 28,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 530,
+    "agent": false,
+    "size": 362,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 529,
+    "agent": false,
+    "size": 146,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 528,
+    "agent": false,
+    "size": 216,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 527,
+    "agent": false,
+    "size": 281,
+    "files": 4,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 526,
+    "agent": false,
+    "size": 493,
+    "files": 6,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 525,
+    "agent": false,
+    "size": 285,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 524,
+    "agent": false,
+    "size": 201,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 523,
+    "agent": false,
+    "size": 251,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 522,
+    "agent": false,
+    "size": 264,
+    "files": 3,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 521,
+    "agent": false,
+    "size": 1479,
+    "files": 7,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 520,
+    "agent": false,
+    "size": 178,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 519,
+    "agent": false,
+    "size": 7,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 518,
+    "agent": false,
+    "size": 9,
+    "files": 10,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 517,
+    "agent": false,
+    "size": 61,
+    "files": 22,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 516,
+    "agent": false,
+    "size": 27,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 515,
+    "agent": true,
+    "size": 20,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.05
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 514,
+    "agent": false,
+    "size": 15,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 513,
+    "agent": false,
+    "size": 20,
+    "files": 2,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 512,
+    "agent": false,
+    "size": 6,
+    "files": 5,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 511,
+    "agent": false,
+    "size": 25,
+    "files": 20,
+    "review": 0,
+    "ttm": 0.21666666666666667
+  },
+  {
+    "repo": "HinduTempleCoins/Bot",
+    "num": 510,
+    "agent": true,
+    "size": 0,
+    "files": 1,
+    "review": 0,
+    "ttm": 0.03333333333333333
+  }
+]

@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""slopcheck — does your AI-written code depend on a package that doesn't exist?
+
+LLMs hallucinate package names. A USENIX Security 2025 study found 19.7% of AI-generated
+code samples referenced a package that doesn't exist — 205,474 unique fabricated names —
+and 43% of them reappear on *every* re-run of the same prompt. That predictability is the
+attack: someone registers the commonly-hallucinated name ("slopsquatting"), and the next
+agent that confidently `pip install`s it pulls their code. One squatted name already hit
+30k+ downloads.
+
+slopcheck reads your dependency manifest (package.json / requirements.txt) and checks each
+package against the live registry for the signals that say "an LLM may have invented this":
+
+  • HIGH  not in the registry at all — hallucinated, a typo, or a name waiting to be squatted
+  • WARN  one edit away from a hugely-popular package — a likely typo/confusion (reqests -> requests)
+  • WARN  exists but barely downloaded — is this really the package you meant?
+  • INFO  no source repository / homepage — thin provenance
+
+Usage:
+  slopcheck <package.json | requirements.txt>      # audit a manifest
+  slopcheck --ecosystem npm|pypi <name> [name ...] # audit names directly
+  slopcheck ... [--json] [--min-downloads N]
+
+Online by default (queries registry.npmjs.org / pypi.org); pass --meta <file.json> to score
+against supplied metadata offline (used by the tests). Exit 0 = clean, 1 = a HIGH risk found.
+This is a heuristic supply-chain smell test, not proof of malice — it tells you which deps to
+look at twice before trusting an agent's import.
+"""
+import json
+import os
+import re
+import sys
+import urllib.request
+import urllib.error
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+LOW_DOWNLOADS = 50          # monthly downloads below this = "barely used"
+# small bundled set of very-popular names for near-miss (typo) detection
+POPULAR = {
+    "npm": {"react", "react-dom", "express", "lodash", "axios", "chalk", "commander", "next",
+            "vue", "typescript", "webpack", "eslint", "jest", "vite", "tailwindcss", "dotenv",
+            "moment", "uuid", "zod", "prisma", "mongoose", "redux", "rxjs", "socket.io",
+            "node-fetch", "cors", "body-parser", "bcrypt", "jsonwebtoken", "nodemon", "ws",
+            "yargs", "inquirer", "puppeteer", "playwright", "winston", "pino", "fastify"},
+    "pypi": {"requests", "numpy", "pandas", "flask", "django", "fastapi", "pydantic", "boto3",
+             "scipy", "matplotlib", "scikit-learn", "torch", "tensorflow", "pytest", "pillow",
+             "sqlalchemy", "click", "httpx", "aiohttp", "beautifulsoup4", "selenium", "celery",
+             "redis", "openai", "anthropic", "transformers", "uvicorn", "starlette", "tqdm",
+             "pyyaml", "python-dotenv", "rich", "typer", "poetry", "black", "ruff", "mypy"},
+}
+
+
+def levenshtein(a, b):
+    """Optimal string alignment distance — adjacent transpositions count as 1 edit, so a
+    common typo like 'raect' -> 'react' (a swap) is distance 1, not 2."""
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > 2:
+        return 99
+    la, lb = len(a), len(b)
+    d = [[0] * (lb + 1) for _ in range(la + 1)]
+    for i in range(la + 1):
+        d[i][0] = i
+    for j in range(lb + 1):
+        d[0][j] = j
+    for i in range(1, la + 1):
+        for j in range(1, lb + 1):
+            cost = 0 if a[i-1] == b[j-1] else 1
+            d[i][j] = min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost)
+            if i > 1 and j > 1 and a[i-1] == b[j-2] and a[i-2] == b[j-1]:
+                d[i][j] = min(d[i][j], d[i-2][j-2] + 1)
+    return d[la][lb]
+
+
+def nearest_popular(name, eco):
+    best, bestd = None, 99
+    for p in POPULAR.get(eco, ()):
+        d = levenshtein(name, p)
+        if d < bestd:
+            best, bestd = p, d
+    return best, bestd
+
+
+# --- registry metadata --------------------------------------------------------
+def _get(url, timeout=15):
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, b""
+    except Exception:
+        return None, b""
+
+
+def npm_meta(name):
+    status, body = _get(f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='')}")
+    if status == 404:
+        return {"exists": False}
+    if status != 200:
+        return {"exists": None}
+    try:
+        d = json.loads(body)
+    except Exception:
+        return {"exists": None}
+    repo = bool(d.get("repository") or d.get("homepage"))
+    created = (d.get("time") or {}).get("created", "")
+    dl_status, dl_body = _get(f"https://api.npmjs.org/downloads/point/last-month/{urllib.parse.quote(name, safe='')}")
+    downloads = 0
+    if dl_status == 200:
+        try:
+            downloads = json.loads(dl_body).get("downloads", 0)
+        except Exception:
+            pass
+    return {"exists": True, "downloads": downloads, "created": created[:10], "repo": repo}
+
+
+def pypi_meta(name):
+    status, body = _get(f"https://pypi.org/pypi/{urllib.parse.quote(name, safe='')}/json")
+    if status == 404:
+        return {"exists": False}
+    if status != 200:
+        return {"exists": None}
+    try:
+        d = json.loads(body)
+    except Exception:
+        return {"exists": None}
+    info = d.get("info") or {}
+    urls = info.get("project_urls") or {}
+    repo = bool(info.get("home_page") or urls)
+    releases = d.get("releases") or {}
+    first = ""
+    dates = [r[0]["upload_time"][:10] for v, r in releases.items() if r]
+    if dates:
+        first = min(dates)
+    return {"exists": True, "downloads": None, "created": first, "repo": repo}
+
+
+# --- manifest parsing ---------------------------------------------------------
+def parse_manifest(path):
+    """Return (eco, [names])."""
+    base = os.path.basename(path).lower()
+    text = open(path, encoding="utf-8", errors="replace").read()
+    if base == "package.json":
+        d = json.loads(text)
+        names = list((d.get("dependencies") or {}).keys()) + list((d.get("devDependencies") or {}).keys())
+        return "npm", names
+    if base.startswith("requirements") and base.endswith(".txt"):
+        names = []
+        for line in text.splitlines():
+            line = line.split("#", 1)[0].strip()
+            if not line or line.startswith("-"):
+                continue
+            m = re.match(r"^([A-Za-z0-9._-]+)", line)
+            if m:
+                names.append(m.group(1))
+        return "pypi", names
+    raise ValueError(f"unsupported manifest: {base} (use package.json or requirements.txt)")
+
+
+# --- scoring ------------------------------------------------------------------
+def score(name, meta, eco, min_dl):
+    findings = []
+    exists = meta.get("exists")
+    if exists is False:
+        near, d = nearest_popular(name, eco)
+        hint = f" — did you mean '{near}'?" if near and d <= 2 else ""
+        findings.append(("HIGH", f"not in the {eco} registry — hallucinated, a typo, or an unregistered (squattable) name{hint}"))
+        return findings
+    if exists is None:
+        findings.append(("INFO", "registry lookup failed — could not verify"))
+        return findings
+    near, d = nearest_popular(name, eco)
+    if near and 1 <= d <= 1 and name not in POPULAR.get(eco, ()):
+        findings.append(("WARN", f"one character off '{near}' — likely a typo/confusion of a popular package"))
+    dl = meta.get("downloads")
+    if dl is not None and dl < min_dl:
+        findings.append(("WARN", f"exists but barely used ({dl} downloads/month) — confirm this is the package you meant"))
+    if meta.get("repo") is False:
+        findings.append(("INFO", "no linked source repository or homepage — thin provenance"))
+    return findings
+
+
+SEV_COL = {"HIGH": RED, "WARN": YEL, "INFO": CYN}
+SEV_RANK = {"HIGH": 0, "WARN": 1, "INFO": 2}
+
+
+def main():
+    a = {"json": False, "meta": None, "ecosystem": None, "min_dl": LOW_DOWNLOADS, "args": []}
+    argv = sys.argv[1:]; i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--json": a["json"] = True; i += 1
+        elif x == "--meta" and i + 1 < len(argv): a["meta"] = argv[i+1]; i += 2
+        elif x == "--ecosystem" and i + 1 < len(argv): a["ecosystem"] = argv[i+1]; i += 2
+        elif x == "--min-downloads" and i + 1 < len(argv): a["min_dl"] = int(argv[i+1]); i += 2
+        elif not x.startswith("-"): a["args"].append(x); i += 1
+        else: i += 1
+
+    if not a["args"]:
+        sys.stderr.write("usage: slopcheck <package.json|requirements.txt> | --ecosystem npm|pypi <name ...>\n")
+        sys.exit(2)
+
+    # resolve (eco, names)
+    if a["ecosystem"]:
+        eco, names = a["ecosystem"], a["args"]
+    else:
+        path = a["args"][0]
+        if not os.path.isfile(path):
+            sys.stderr.write(f"slopcheck: no such manifest: {path}\n"); sys.exit(2)
+        try:
+            eco, names = parse_manifest(path)
+        except (ValueError, json.JSONDecodeError) as e:
+            sys.stderr.write(f"slopcheck: {e}\n"); sys.exit(2)
+
+    meta_map = {}
+    if a["meta"]:
+        meta_map = json.loads(open(a["meta"]).read())
+    fetch = {"npm": npm_meta, "pypi": pypi_meta}.get(eco)
+
+    rows = []
+    for name in names:
+        if a["meta"]:
+            meta = meta_map.get(name, {"exists": False})
+        else:
+            meta = fetch(name) if fetch else {"exists": None}
+        findings = score(name, meta, eco, a["min_dl"])
+        worst = min((SEV_RANK[s] for s, _ in findings), default=3)
+        rows.append({"name": name, "meta": meta, "findings": findings,
+                     "verdict": ["HIGH", "WARN", "INFO", "OK"][worst]})
+
+    risky = [r for r in rows if r["verdict"] in ("HIGH", "WARN")]
+    has_high = any(r["verdict"] == "HIGH" for r in rows)
+
+    if a["json"]:
+        print(json.dumps({"ecosystem": eco, "checked": len(rows), "risky": len(risky),
+                          "results": rows}, indent=2))
+        sys.exit(1 if has_high else 0)
+
+    print(f"slopcheck — {len(rows)} {eco} dependenc{'y' if len(rows)==1 else 'ies'}\n")
+    for r in sorted(rows, key=lambda r: SEV_RANK.get(r["verdict"], 3)):
+        if not r["findings"]:
+            continue
+        for sev, msg in sorted(r["findings"], key=lambda f: SEV_RANK[f[0]]):
+            print(f"  {SEV_COL[sev]}● {sev:<4}{RST} {r['name']}")
+            print(f"         {DIM}{msg}{RST}")
+    print()
+    if risky:
+        nh = sum(1 for r in rows if r["verdict"] == "HIGH")
+        print(f"  {RED if has_high else YEL}● {len(risky)} of {len(rows)} dependencies look risky"
+              f"{f' ({nh} not in the registry at all)' if nh else ''}.{RST}")
+        print(f"         {DIM}Before trusting an agent's import, verify each flagged package resolves to the")
+        print(f"         project you expect — a hallucinated name is exactly what slopsquatters register.{RST}\n")
+    else:
+        print(f"  {GRN}✓ clean — every dependency is a known, registered package.{RST}\n")
+    sys.exit(1 if has_high else 0)
+
+
+if __name__ == "__main__":
+    import urllib.parse  # noqa: E402  (kept local so the offline path needs no network imports up top)
+    main()

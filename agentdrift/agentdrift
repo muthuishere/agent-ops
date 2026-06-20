@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""agentdrift — your repo has five files telling the agent what to do. Do they agree?
+
+Every coding agent reads its own instruction file: Claude Code reads CLAUDE.md, Codex
+reads AGENTS.md, Cursor reads .cursorrules / .cursor/rules, Copilot reads
+.github/copilot-instructions.md, and so on. So a repo that wants to support more than one
+agent ends up with several files that are all SUPPOSED to say the same thing — and, left
+to hand-maintenance, they quietly drift. One says "use pytest", another still says "use
+unittest". Different agents then follow different rules in the same repo.
+
+agentdrift finds a repo's agent-instruction files and checks whether they agree:
+
+  • SINGLE SOURCE      — one instruction file. Nothing to drift. (good)
+  • CANONICAL+REDIRECT — one real file; the others are short stubs that point to it. (good)
+  • DUPLICATED         — two+ near-identical real files. No drift yet, but it's coming —
+                         they're kept in sync by copy-paste. (warn)
+  • DRIFT              — two+ substantive files that have DIVERGED. Agents disagree. (fail)
+
+The fix is the pattern the ecosystem is converging on: keep ONE canonical file (AGENTS.md
+is the emerging cross-tool standard) and make the rest one-line redirect stubs.
+
+Usage:
+  agentdrift [DIR]            # default: .   — audit one repo
+  agentdrift --corpus DIR     # audit every immediate subdirectory as a repo (for studies)
+  agentdrift [--json] [--threshold N]   # N = similarity %% below which two real files = drift (default 90)
+
+Exit 0 = single-source or clean redirect pattern; 1 = duplication or drift found.
+"""
+import difflib
+import json
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+# known agent-instruction files (relative paths / globs under a repo root)
+KNOWN = [
+    "CLAUDE.md", "AGENTS.md", "AGENT.md", "GEMINI.md", "CONVENTIONS.md",
+    ".cursorrules", ".windsurfrules", ".clinerules", ".rules",
+    ".github/copilot-instructions.md",
+]
+GLOB_DIRS = [".cursor/rules", ".clinerules", ".windsurf/rules"]   # dirs of rule files
+INSTR_NAMES = re.compile(r"(CLAUDE|AGENTS?|GEMINI|CONVENTIONS|cursor|copilot|windsurf|cline)", re.I)
+
+
+def find_files(repo):
+    found = []
+    for rel in KNOWN:
+        p = os.path.join(repo, rel)
+        if os.path.isfile(p):
+            found.append(rel)
+    for d in GLOB_DIRS:
+        dp = os.path.join(repo, d)
+        if os.path.isdir(dp):
+            for fn in sorted(os.listdir(dp)):
+                if fn.endswith((".md", ".mdc", ".txt")):
+                    found.append(os.path.join(d, fn))
+    return found
+
+
+def read(repo, rel):
+    try:
+        return open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+
+
+def normalize(t):
+    return re.sub(r"\s+", " ", t.lower()).strip()
+
+
+def is_redirect_stub(text):
+    """Short file whose main content is 'see <other instruction file>'."""
+    body = text.strip()
+    if len(body) > 600:
+        return False
+    # references another known instruction file by name
+    if INSTR_NAMES.search(body) and re.search(r"\b(see|read|follow|refer|@|->|points? to|same as|use)\b", body, re.I):
+        return True
+    # very short + an @import / link to another .md
+    if len(body) < 200 and re.search(r"@?[\w./-]+\.md", body):
+        return True
+    return False
+
+
+def similarity(a, b):
+    return difflib.SequenceMatcher(None, normalize(a), normalize(b)).ratio()
+
+
+def audit(repo, threshold):
+    files = find_files(repo)
+    infos = []
+    for rel in files:
+        txt = read(repo, rel)
+        # a symlink (the most common correct redirect, e.g. CLAUDE.md -> AGENTS.md) reads as
+        # the target's content, but it CAN'T drift — it IS the canonical file. Treat as a stub.
+        link = os.path.islink(os.path.join(repo, rel))
+        infos.append({"file": rel, "chars": len(txt), "text": txt,
+                      "symlink": link, "stub": link or is_redirect_stub(txt)})
+    substantive = [f for f in infos if not f["stub"]]
+
+    pairs = []
+    for i in range(len(substantive)):
+        for j in range(i + 1, len(substantive)):
+            s = round(100 * similarity(substantive[i]["text"], substantive[j]["text"]), 1)
+            pairs.append({"a": substantive[i]["file"], "b": substantive[j]["file"], "similarity": s})
+
+    if len(files) == 0:
+        verdict = "NONE"
+    elif len(substantive) <= 1:
+        verdict = "REDIRECT" if len(files) > 1 else "SINGLE"
+    else:
+        worst = min((p["similarity"] for p in pairs), default=100)
+        best = max((p["similarity"] for p in pairs), default=0)
+        if worst < threshold:
+            verdict = "DRIFT"
+        elif best >= 98:
+            verdict = "DUPLICATED"
+        else:
+            verdict = "DUPLICATED"   # near-identical-but-not-redirected = maintenance drift risk
+    return {"repo": repo, "files": [f["file"] for f in infos],
+            "stubs": [f["file"] for f in infos if f["stub"]],
+            "substantive": [f["file"] for f in substantive],
+            "pairs": pairs, "verdict": verdict,
+            "max_pairwise_similarity": max((p["similarity"] for p in pairs), default=None),
+            "min_pairwise_similarity": min((p["similarity"] for p in pairs), default=None)}
+
+
+V = {
+    "SINGLE":     (GRN, "SINGLE SOURCE", "one instruction file — nothing to drift."),
+    "REDIRECT":   (GRN, "CANONICAL + REDIRECT", "one real file; the rest are stubs pointing to it."),
+    "DUPLICATED": (YEL, "DUPLICATED", "near-identical real files kept in sync by hand — drift is coming."),
+    "DRIFT":      (RED, "DRIFT", "substantive files have DIVERGED — your agents follow different rules."),
+    "NONE":       (DIM, "NO INSTRUCTION FILES", "no agent-instruction files found here."),
+}
+
+
+def divergent_lines(repo, a, b, limit=4):
+    ta = read(repo, a).splitlines()
+    tb = read(repo, b).splitlines()
+    out = []
+    for line in difflib.unified_diff(ta, tb, lineterm="", n=0):
+        if line[:2] in ("+ ", "- ") and line[1:].strip() and not line.startswith(("+++", "---")):
+            out.append(line)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def print_one(r, repo, show_diff=True):
+    col, label, desc = V[r["verdict"]]
+    print(f"  {col}● {label}{RST}  {DIM}{desc}{RST}")
+    if r["files"]:
+        marks = ", ".join(f"{f}{' (stub)' if f in r['stubs'] else ''}" for f in r["files"])
+        print(f"        files: {marks}")
+    for p in sorted(r["pairs"], key=lambda p: p["similarity"]):
+        pc = RED if p["similarity"] < 90 else (YEL if p["similarity"] < 98 else DIM)
+        print(f"        {pc}{p['similarity']:.0f}% similar{RST}  {p['a']} ↔ {p['b']}")
+    if show_diff and r["verdict"] == "DRIFT" and r["pairs"]:
+        worst = min(r["pairs"], key=lambda p: p["similarity"])
+        dl = divergent_lines(repo, worst["a"], worst["b"])
+        if dl:
+            print(f"        {DIM}e.g. {worst['a']} vs {worst['b']}:{RST}")
+            for line in dl:
+                c = GRN if line.startswith("+") else RED
+                print(f"          {c}{line[:90]}{RST}")
+
+
+def main():
+    a = {"dir": None, "corpus": None, "json": False, "threshold": 90}
+    argv = sys.argv[1:]; i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--corpus" and i + 1 < len(argv): a["corpus"] = argv[i+1]; i += 2
+        elif x == "--threshold" and i + 1 < len(argv): a["threshold"] = float(argv[i+1]); i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        elif not x.startswith("-"): a["dir"] = x; i += 1
+        else: i += 1
+
+    if a["corpus"]:
+        repos = [os.path.join(a["corpus"], d) for d in sorted(os.listdir(a["corpus"]))
+                 if os.path.isdir(os.path.join(a["corpus"], d))]
+        results = [audit(r, a["threshold"]) for r in repos]
+        results = [r for r in results if r["verdict"] != "NONE"]
+        if a["json"]:
+            print(json.dumps({"results": results}, indent=2));
+        else:
+            counts = {}
+            for r in results:
+                counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
+            print(f"agentdrift — corpus of {len(results)} repo(s) with agent-instruction files\n")
+            for r in sorted(results, key=lambda r: r["min_pairwise_similarity"] if r["min_pairwise_similarity"] is not None else 101):
+                col, label, _ = V[r["verdict"]]
+                sim = f"{r['min_pairwise_similarity']:.0f}% min sim" if r["min_pairwise_similarity"] is not None else "—"
+                print(f"  {col}[{label:<11}]{RST} {os.path.basename(r['repo']):<28} {DIM}{len(r['files'])} files · {sim}{RST}")
+            print()
+            n_multi = sum(1 for r in results if len(r["substantive"]) > 1)
+            n_drift = counts.get("DRIFT", 0) + counts.get("DUPLICATED", 0)
+            print(f"  {CYN}● {n_multi}/{len(results)} repos keep 2+ substantive instruction files; "
+                  f"{n_drift} show drift or duplication.{RST}\n")
+        sys.exit(1 if any(r["verdict"] in ("DRIFT", "DUPLICATED") for r in results) else 0)
+
+    repo = a["dir"] or "."
+    if not os.path.isdir(repo):
+        sys.stderr.write(f"agentdrift: not a directory: {repo}\n"); sys.exit(2)
+    r = audit(repo, a["threshold"])
+    if a["json"]:
+        r.pop("repo", None)
+        for p in r.get("pairs", []):
+            pass
+        print(json.dumps(r, indent=2));
+        sys.exit(1 if r["verdict"] in ("DRIFT", "DUPLICATED") else 0)
+
+    print(f"agentdrift — {os.path.abspath(repo).split('/')[-1]}\n")
+    print_one(r, repo)
+    if r["verdict"] in ("DRIFT", "DUPLICATED"):
+        print(f"\n  {DIM}Fix: keep ONE canonical file (AGENTS.md is the emerging cross-tool standard) and make")
+        print(f"  the others one-line redirect stubs (e.g. CLAUDE.md = \"See AGENTS.md\"). One source, no drift.{RST}\n")
+        sys.exit(1)
+    print()
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

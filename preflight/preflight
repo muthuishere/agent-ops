@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# preflight — would these two agents' changes conflict if merged RIGHT NOW?
+#
+# Answers BEFORE a patch lands, using git's own merge engine (not a heuristic):
+# `git merge-tree --write-tree` simulates a real three-way merge in memory —
+# no checkout, no index, no commit, no working-tree touch. Fast enough for a
+# pre-commit / PreToolUse hook.
+#
+#   preflight <ref1> <ref2>      preflight two committed refs (e.g. two agent
+#                                worktree HEADs, or HEAD vs the integration branch)
+#   preflight --working <ref>    snapshot THIS worktree's uncommitted changes as
+#                                the candidate, preflight it against <ref>
+#                                (hook mode — see the caveat below)
+#
+# Output:  CLEAR                 (exit 0) the merge is clean
+#          CONFLICT              (exit 1) followed by one conflicting path per line
+#          <error to stderr>     (exit 2) bad ref / not a repo / usage
+#
+# WHY --working exists: merge-tree only reads COMMITTED refs. It is blind to the
+# index and working tree. So to check an agent's in-flight edits we snapshot them
+# into a throwaway, unreferenced commit (via a temp index + commit-tree) and
+# preflight THAT. The snapshot is never reachable from any ref and gets GC'd.
+#
+# Catches the same TEXTUAL conflicts git itself would flag at merge time — no
+# more, no less. It does not catch semantic conflicts (two edits that merge
+# cleanly but are logically incompatible). That honesty is the point.
+
+set -u
+
+usage() { echo "usage: preflight <ref1> <ref2> | preflight --working <ref>" >&2; exit 2; }
+
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "preflight: not a git repo" >&2; exit 2; }
+
+if [ "${1:-}" = "--working" ]; then
+  [ $# -eq 2 ] || usage
+  other="$2"
+  git rev-parse --verify -q "$other^{commit}" >/dev/null || { echo "preflight: bad ref '$other'" >&2; exit 2; }
+  # Snapshot the dirty working tree into an unreferenced candidate commit,
+  # without disturbing the real index / HEAD / checkout.
+  tmpidx="$(mktemp)"
+  GIT_INDEX_FILE="$tmpidx" git read-tree HEAD          2>/dev/null
+  GIT_INDEX_FILE="$tmpidx" git add -A                  2>/dev/null
+  cand_tree="$(GIT_INDEX_FILE="$tmpidx" git write-tree 2>/dev/null)"
+  rm -f "$tmpidx"
+  ref1="$(git commit-tree "$cand_tree" -p HEAD -m preflight-candidate 2>/dev/null)"
+  ref2="$other"
+  [ -n "$ref1" ] || { echo "preflight: could not snapshot working tree" >&2; exit 2; }
+else
+  [ $# -eq 2 ] || usage
+  ref1="$1"; ref2="$2"
+  git rev-parse --verify -q "$ref1^{commit}" >/dev/null || { echo "preflight: bad ref '$ref1'" >&2; exit 2; }
+  git rev-parse --verify -q "$ref2^{commit}" >/dev/null || { echo "preflight: bad ref '$ref2'" >&2; exit 2; }
+fi
+
+# The whole mechanism, in one line. --name-only => machine-readable conflict list.
+out="$(git merge-tree --write-tree --name-only "$ref1" "$ref2" 2>/dev/null)"
+rc=$?
+
+if [ "$rc" -eq 0 ]; then
+  echo "CLEAR"
+  exit 0
+elif [ "$rc" -eq 1 ]; then
+  echo "CONFLICT"
+  # stdout = <tree-oid>\n<conflicted path>...\n[\n<info messages>]
+  # drop line 1 (the OID); print paths up to the first blank line.
+  printf '%s\n' "$out" | awk 'NR>1 { if ($0=="") exit; print }'
+  exit 1
+else
+  echo "preflight: merge-tree failed (rc=$rc)" >&2
+  exit 2
+fi

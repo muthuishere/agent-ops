@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""unwedge — rescue a Claude Code session stuck on the 400
+"thinking/redacted_thinking blocks in the latest assistant message cannot be
+modified" error.
+
+The wedge: an extended-thinking turn gets cut mid-stream, leaving an orphaned
+*signed* thinking block as the LAST assistant message in the session transcript.
+Claude Code persists that block with its text emptied but its signature kept
+(anthropics/claude-code#63147), then resends it on every request — where the
+API correctly rejects it as immutable. Every "continue" reproduces the 400; the
+session is permanently stuck.
+
+The fix is surgical and context-preserving (unlike /rewind, which re-runs work,
+or /clear, which drops the conversation): drop the trailing orphaned thinking
+turn so the transcript ends at the last clean `user` line, then `claude --resume`.
+
+Usage:
+  unwedge find [project_dir]      # newest transcript .jsonl for a project (default: cwd)
+  unwedge diagnose <transcript>   # is it wedged?  exit 0 clean, 1 wedged
+  unwedge fix <transcript>        # DRY-RUN: show the cut it would make
+  unwedge fix <transcript> --write  # back up + truncate to the last clean user line
+
+IMPORTANT: quit the stuck session first — a live session holds history in memory
+and will overwrite the file on exit, undoing the repair.
+"""
+import json
+import os
+import sys
+import time
+
+THINKING = ("thinking", "redacted_thinking")
+
+
+def die(msg, code=2):
+    sys.stderr.write(f"unwedge: {msg}\n")
+    sys.exit(code)
+
+
+def load(path):
+    if not os.path.isfile(path):
+        die(f"no such transcript: {path}")
+    rows = []
+    with open(path, "r") as fh:
+        for n, line in enumerate(fh):
+            s = line.rstrip("\n")
+            if not s.strip():
+                rows.append((n, s, None))
+                continue
+            try:
+                rows.append((n, s, json.loads(s)))
+            except json.JSONDecodeError:
+                rows.append((n, s, None))  # keep unparseable lines verbatim
+    return rows
+
+
+def msg_content(obj):
+    """The content blocks of an assistant/user message line, or None."""
+    if not isinstance(obj, dict):
+        return None
+    if obj.get("type") not in ("assistant", "user"):
+        return None
+    msg = obj.get("message")
+    if not isinstance(msg, dict):
+        return None
+    return msg.get("content")
+
+
+def ends_in_thinking(content):
+    """True if a message's content is a block list whose LAST block is a
+    (redacted_)thinking block — the orphaned-turn signature."""
+    if not isinstance(content, list) or not content:
+        return False
+    last = content[-1]
+    return isinstance(last, dict) and last.get("type") in THINKING
+
+
+def analyze(rows):
+    """Return (wedged: bool, info: dict).
+
+    Wedged ⟺ the last message-bearing line is an `assistant` turn whose content
+    ends in a thinking block, with no `user` turn after it. We also report the
+    index of the last clean `user` line to cut back to.
+    """
+    last_msg_idx = None       # index into rows of the final assistant/user line
+    last_msg_is_asst = False
+    last_user_before = None   # last user line at/under the orphan
+
+    # Walk forward, tracking the most recent user line and the final message line.
+    running_last_user = None
+    for i, (_, _, obj) in enumerate(rows):
+        c = msg_content(obj)
+        if c is None:
+            continue
+        kind = obj.get("type")
+        if kind == "user":
+            running_last_user = i
+        last_msg_idx = i
+        last_msg_is_asst = (kind == "assistant")
+        if kind == "assistant" and ends_in_thinking(c):
+            last_user_before = running_last_user
+        else:
+            last_user_before = None  # a clean turn resets the orphan candidate
+
+    if last_msg_idx is None:
+        return False, {"reason": "no assistant/user messages found"}
+
+    final_obj = rows[last_msg_idx][2]
+    final_content = msg_content(final_obj)
+    wedged = last_msg_is_asst and ends_in_thinking(final_content)
+
+    info = {
+        "last_msg_idx": last_msg_idx,
+        "last_msg_is_asst": last_msg_is_asst,
+        "cut_to_user_idx": last_user_before,
+        "total_lines": len(rows),
+    }
+    return wedged, info
+
+
+def cmd_find(args):
+    project = os.path.abspath(args[0]) if args else os.getcwd()
+    slug = project.replace("/", "-")
+    base = os.path.expanduser(f"~/.claude/projects/{slug}")
+    if not os.path.isdir(base):
+        die(f"no transcript dir for {project}\n  (looked in {base})", 3)
+    jsonls = [os.path.join(base, f) for f in os.listdir(base) if f.endswith(".jsonl")]
+    if not jsonls:
+        die(f"no .jsonl transcripts in {base}", 3)
+    newest = max(jsonls, key=os.path.getmtime)
+    print(newest)
+
+
+def cmd_diagnose(args):
+    if not args:
+        die("usage: unwedge diagnose <transcript.jsonl>")
+    rows = load(args[0])
+    wedged, info = analyze(rows)
+    if wedged:
+        cut = info["cut_to_user_idx"]
+        where = f"line {cut + 1}" if cut is not None else "(no clean user line found!)"
+        print(f"WEDGED: last assistant turn (line {info['last_msg_idx'] + 1}) ends in an "
+              f"orphaned thinking block.")
+        print(f"  fix would truncate to the last clean user line: {where}")
+        print(f"  ({info['total_lines']} lines total)")
+        sys.exit(1)
+    print(f"CLEAN: transcript ends on a clean turn ({info['total_lines']} lines) — "
+          f"not the thinking-block wedge.")
+    sys.exit(0)
+
+
+def cmd_fix(args):
+    write = "--write" in args
+    rest = [a for a in args if a != "--write"]
+    if not rest:
+        die("usage: unwedge fix <transcript.jsonl> [--write]")
+    path = rest[0]
+    rows = load(path)
+    wedged, info = analyze(rows)
+    if not wedged:
+        die("nothing to fix — transcript is not wedged (ends on a clean turn). "
+            "Refusing to modify.", 2)
+    cut = info["cut_to_user_idx"]
+    if cut is None:
+        die("wedged, but found no clean `user` line to cut back to — refusing to "
+            "guess. Inspect the transcript by hand.", 4)
+
+    keep = cut + 1                      # keep rows[0..cut] inclusive
+    dropped = info["total_lines"] - keep
+    kept_last = rows[cut][2]
+    # Sanity: the kept last line really is a user message.
+    if msg_content(kept_last) is None or kept_last.get("type") != "user":
+        die("internal: cut target is not a user message — refusing.", 4)
+
+    print(f"WEDGED: dropping {dropped} trailing line(s) (the orphaned thinking turn "
+          f"+ anything after it).")
+    print(f"  keep lines 1..{keep}; new last line = clean user turn (line {keep}).")
+    if not write:
+        print("  DRY-RUN — re-run with --write to apply. (Quit the stuck session FIRST.)")
+        return
+
+    backup = f"{path}.unwedge-bak-{int(time.time())}"
+    with open(backup, "w") as bk:
+        for _, raw, _ in rows:
+            bk.write(raw + "\n")
+    with open(path, "w") as out:
+        for _, raw, _ in rows[:keep]:
+            out.write(raw + "\n")
+    print(f"  backup: {backup}")
+    print(f"  repaired: {path}")
+    print("  now run:  claude --resume")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
+    cmd, rest = sys.argv[1], sys.argv[2:]
+    if cmd == "find":
+        cmd_find(rest)
+    elif cmd == "diagnose":
+        cmd_diagnose(rest)
+    elif cmd == "fix":
+        cmd_fix(rest)
+    else:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

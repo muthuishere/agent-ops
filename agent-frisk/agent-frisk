@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""agent-frisk — find the invisible Unicode that can hijack a coding agent.
+
+Indirect prompt injection is the top security risk for AI coding agents: an
+attacker hides instructions in a file, dependency, skill/MCP description, or
+fetched web page that look empty to you but are real tokens to the model. The
+concealment is almost always Unicode:
+
+  • Unicode TAG codepoints  (U+E0000–U+E007F) — invisible; LLMs read them as text
+  • zero-width characters   (ZWSP/ZWNJ/ZWJ, word joiner, BOM, soft hyphen, …)
+  • bidirectional overrides (U+202A–U+202E, U+2066–U+2069) — "Trojan Source"
+
+agent-frisk scans content for exactly those, before your agent ingests it.
+
+  agent-frisk <file...>        # scan files; exit 1 if anything hidden is found
+  agent-frisk -                # scan stdin (e.g. a fetched page:  curl … | agent-frisk -)
+  agent-frisk --strip <file>   # remove the hidden characters in place (writes a .bak)
+"""
+import sys
+import unicodedata
+
+# (name, predicate) — the invisible / direction-bending codepoints that carry payloads.
+TAG_LO, TAG_HI = 0xE0000, 0xE007F
+ZERO_WIDTH = {0x200B, 0x200C, 0x200D, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064,
+              0xFEFF, 0x00AD, 0x180E, 0x115F, 0x1160, 0x3164, 0xFFA0}
+BIDI = {0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069}
+
+
+def classify(cp):
+    if TAG_LO <= cp <= TAG_HI:
+        return "unicode-tag (hidden LLM instruction channel)"
+    if cp in BIDI:
+        return "bidi override (Trojan Source — reverses/reorders visible text)"
+    if cp in ZERO_WIDTH:
+        return "zero-width / invisible"
+    return None
+
+
+def is_dangerous(cp):
+    return classify(cp) is not None
+
+
+def name_of(ch):
+    try:
+        return unicodedata.name(ch)
+    except ValueError:
+        return "<unnamed>"
+
+
+def scan_text(text):
+    """Yield (line, col, codepoint, category, name, line_text) for each hit."""
+    line = 1; col = 1
+    line_start = 0
+    for i, ch in enumerate(text):
+        cp = ord(ch)
+        cat = classify(cp)
+        if cat:
+            nl = text.find("\n", line_start)
+            line_text = text[line_start: nl if nl != -1 else len(text)]
+            yield (line, col, cp, cat, name_of(ch), line_text)
+        if ch == "\n":
+            line += 1; col = 1; line_start = i + 1
+        else:
+            col += 1
+
+
+def report(label, text):
+    hits = list(scan_text(text))
+    if not hits:
+        print(f"  ✓ {label}: clean")
+        return 0
+    print(f"  ✗ {label}: {len(hits)} hidden character(s)")
+    for line, col, cp, cat, nm, line_text in hits:
+        vis = line_text.replace("\t", "    ")
+        print(f"      {line}:{col}  U+{cp:04X}  {cat}")
+        print(f"             {nm}")
+    return 1
+
+
+def strip_text(text):
+    return "".join(ch for ch in text if not is_dangerous(ord(ch)))
+
+
+def main():
+    args = sys.argv[1:]
+    strip = "--strip" in args
+    paths = [a for a in args if a != "--strip"]
+    if not paths:
+        sys.stderr.write(__doc__); sys.exit(2)
+
+    if strip:
+        for p in paths:
+            text = open(p, encoding="utf-8", errors="surrogatepass").read()
+            cleaned = strip_text(text)
+            if cleaned == text:
+                print(f"  ✓ {p}: nothing to strip")
+                continue
+            open(p + ".bak", "w", encoding="utf-8", errors="surrogatepass").write(text)
+            open(p, "w", encoding="utf-8", errors="surrogatepass").write(cleaned)
+            removed = len(text) - len(cleaned)
+            print(f"  stripped {removed} hidden char(s) from {p}  (backup: {p}.bak)")
+        return
+
+    bad = 0
+    for p in paths:
+        if p == "-":
+            bad |= report("<stdin>", sys.stdin.read())
+        else:
+            try:
+                text = open(p, encoding="utf-8", errors="surrogatepass").read()
+            except OSError as e:
+                sys.stderr.write(f"agent-frisk: {p}: {e}\n"); bad = 1; continue
+            bad |= report(p, text)
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()

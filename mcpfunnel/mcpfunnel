@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""mcpfunnel — how many MCP servers in the official registry can you actually run?
+
+The official MCP registry (registry.modelcontextprotocol.io) is the canonical catalog
+everyone points their agents at. But "listed in the registry" is not "installs and runs."
+mcpfunnel pulls the registry and measures the drop-off:
+
+  ALL listed
+    -> INSTALLABLE   (ships an npm/PyPI package you can run locally, not remote-only)
+    -> RESOLVES      (that package actually exists on npm/PyPI — not a dead pointer)
+    -> HANDSHAKE     (it boots and completes an MCP initialize + tools/list, no config)
+
+Each stage is deterministic: registry JSON, a registry 404 check, and a fixed JSON-RPC
+handshake over stdio. No model anywhere.
+
+Usage:
+  mcpfunnel                          # fetch the live registry, report composition
+  mcpfunnel --boot [--sample N]      # also launch installable servers and test the handshake
+  mcpfunnel --registry servers.json  # analyze a saved registry dump (offline)
+  mcpfunnel [--json] [--timeout S]
+
+Honest caveat: a server that doesn't complete a handshake here may just need credentials
+(an API key in env), not be broken — so HANDSHAKE measures "runs out of the box," and
+mcpfunnel reports the no-start / no-handshake split so you can tell the difference.
+Exit 0 always (it's a report); --boot may be slow.
+"""
+import json
+import os
+import subprocess
+import sys
+import threading
+import urllib.parse
+import urllib.request
+import urllib.error
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+
+def classify(record):
+    """A registry record -> {name, kind, identifier, version, transport}."""
+    srv = record.get("server", record) if isinstance(record, dict) else {}
+    name = srv.get("name", "?")
+    pkgs = srv.get("packages") or []
+    if not pkgs and srv.get("remotes"):
+        return {"name": name, "kind": "remote", "identifier": None, "version": None}
+    for p in pkgs:
+        rt = (p.get("registryType") or p.get("registry_name") or "").lower()
+        if rt in ("npm", "pypi"):
+            return {"name": name, "kind": rt, "identifier": p.get("identifier"),
+                    "version": p.get("version"),
+                    "transport": (p.get("transport") or {}).get("type", "stdio")}
+    for p in pkgs:
+        rt = (p.get("registryType") or p.get("registry_name") or "").lower()
+        if rt in ("oci", "docker"):
+            return {"name": name, "kind": "oci", "identifier": p.get("identifier"), "version": p.get("version")}
+    if pkgs:
+        return {"name": name, "kind": "other", "identifier": pkgs[0].get("identifier"), "version": None}
+    return {"name": name, "kind": "other", "identifier": None, "version": None}
+
+
+def dedupe_latest(records):
+    """Keep one record per server name (prefer isLatest)."""
+    latest = {}
+    for r in records:
+        srv = r.get("server", {}) if isinstance(r, dict) else {}
+        name = srv.get("name")
+        meta = (r.get("_meta", {}) or {}).get("io.modelcontextprotocol.registry/official", {}) or {}
+        if name and (meta.get("isLatest") or name not in latest):
+            latest[name] = r
+    return list(latest.values())
+
+
+def composition(classified):
+    c = {}
+    for x in classified:
+        c[x["kind"]] = c.get(x["kind"], 0) + 1
+    return c
+
+
+def funnel_counts(classified, boot_results):
+    total = len(classified)
+    installable = [x for x in classified if x["kind"] in ("npm", "pypi")]
+    by_name = {r["name"]: r for r in boot_results}
+    resolves = sum(1 for x in installable if by_name.get(x["name"], {}).get("resolves") is True)
+    speaks = sum(1 for x in installable if str(by_name.get(x["name"], {}).get("boot", "")).startswith("speaks"))
+    return {"total": total, "installable": len(installable), "resolves": resolves, "handshake": speaks}
+
+
+# --- live ---------------------------------------------------------------------
+def fetch_registry(pages=12):
+    base = "https://registry.modelcontextprotocol.io/v0/servers"
+    out, cursor = [], None
+    for _ in range(pages):
+        url = base + "?limit=100" + (f"&cursor={urllib.parse.quote(cursor)}" if cursor else "")
+        try:
+            with urllib.request.urlopen(url, timeout=25) as r:
+                d = json.loads(r.read())
+        except Exception:
+            break
+        out += d.get("servers", [])
+        cursor = (d.get("metadata") or {}).get("nextCursor") or (d.get("metadata") or {}).get("next_cursor")
+        if not cursor:
+            break
+    return out
+
+
+def pkg_resolves(kind, ident):
+    if not ident:
+        return None
+    url = (f"https://registry.npmjs.org/{urllib.parse.quote(ident, safe='')}" if kind == "npm"
+           else f"https://pypi.org/pypi/{urllib.parse.quote(ident, safe='')}/json")
+    try:
+        urllib.request.urlopen(url, timeout=10)
+        return True
+    except urllib.error.HTTPError as e:
+        return False if e.code == 404 else None
+    except Exception:
+        return None
+
+
+def handshake(kind, ident, version, timeout):
+    if kind == "npm":
+        cmd = ["npx", "-y", f"{ident}@{version}" if version else ident]
+    else:
+        cmd = ["uvx", f"{ident}=={version}" if version else ident]
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    except Exception:
+        return "no-start"
+    res = {"v": None}
+
+    def run():
+        try:
+            def send(o):
+                p.stdin.write(json.dumps(o) + "\n"); p.stdin.flush()
+            send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                "protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "mcpfunnel", "version": "0"}}})
+            for _ in range(60):
+                line = p.stdout.readline()
+                if not line:
+                    res["v"] = "no-start"; return
+                try:
+                    m = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("id") == 1:
+                    break
+            else:
+                res["v"] = "no-handshake"; return
+            send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+            send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+            for _ in range(80):
+                line = p.stdout.readline()
+                if not line:
+                    break
+                try:
+                    m = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if m.get("id") == 2:
+                    res["v"] = f"speaks:{len(m.get('result', {}).get('tools', []))}"; return
+            res["v"] = "init-only"
+        except Exception:
+            res["v"] = "error"
+    t = threading.Thread(target=run, daemon=True)
+    t.start(); t.join(timeout)
+    try:
+        p.terminate()
+    except Exception:
+        pass
+    return res["v"] or "timeout"
+
+
+def main():
+    a = {"boot": False, "sample": None, "registry": None, "json": False, "timeout": 25, "results": None}
+    argv = sys.argv[1:]; i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--boot": a["boot"] = True; i += 1
+        elif x == "--sample" and i + 1 < len(argv): a["sample"] = int(argv[i+1]); i += 2
+        elif x == "--registry" and i + 1 < len(argv): a["registry"] = argv[i+1]; i += 2
+        elif x == "--funnel-results" and i + 1 < len(argv): a["results"] = argv[i+1]; i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        elif x == "--timeout" and i + 1 < len(argv): a["timeout"] = int(argv[i+1]); i += 2
+        else: i += 1
+
+    if a["registry"]:
+        records = json.loads(open(a["registry"]).read())
+        records = records if isinstance(records, list) else records.get("servers", [])
+    else:
+        records = fetch_registry()
+    records = dedupe_latest(records)
+    classified = [classify(r) for r in records]
+    comp = composition(classified)
+
+    boot_results = []
+    if a["results"]:                       # display a cached boot run (reproducible, no relaunch)
+        boot_results = json.loads(open(a["results"]).read())
+        a["boot"] = True
+    elif a["boot"]:
+        installable = [x for x in classified if x["kind"] in ("npm", "pypi")]
+        if a["sample"]:
+            installable = installable[:a["sample"]]
+        for x in installable:
+            resolves = pkg_resolves(x["kind"], x["identifier"])
+            boot = handshake(x["kind"], x["identifier"], x.get("version"), a["timeout"]) if resolves else "(unresolved)"
+            boot_results.append({"name": x["name"], "kind": x["kind"], "identifier": x["identifier"],
+                                "resolves": resolves, "boot": boot})
+
+    fc = funnel_counts(classified, boot_results)
+
+    if a["json"]:
+        print(json.dumps({"composition": comp, "funnel": fc, "boot_results": boot_results}, indent=2))
+        return
+
+    n = len(classified)
+    if n == 0:
+        print("mcpfunnel — no servers found in the registry (empty or unreachable).")
+        return
+    print(f"mcpfunnel — {n} unique servers in the official MCP registry\n")
+    print(f"  composition:")
+    for kind in ("remote", "npm", "pypi", "oci", "other"):
+        if comp.get(kind):
+            pct = 100 * comp[kind] // n
+            col = CYN if kind in ("npm", "pypi") else DIM
+            print(f"    {col}{comp[kind]:>4}  {pct:>3}%  {kind}{RST}{'  (installable, stdio)' if kind in ('npm','pypi') else ''}")
+    installable = comp.get("npm", 0) + comp.get("pypi", 0)
+    print(f"\n  {YEL}● {installable} of {n} ({100*installable//n}%) ship an installable package — "
+          f"the rest are remote-only (hosted){RST}")
+
+    if a["boot"]:
+        print(f"\n  install -> boot funnel ({len(boot_results)} installable server(s) tested, no config):")
+        nores = [r for r in boot_results if r["resolves"] is False]
+        speaks = [r for r in boot_results if str(r["boot"]).startswith("speaks")]
+        nostart = [r for r in boot_results if r["boot"] in ("no-start", "no-handshake", "timeout", "error", "init-only")]
+        print(f"    {fc['installable']:>4}  installable")
+        print(f"    {GRN}{fc['resolves']:>4}{RST}  resolve on npm/PyPI  {DIM}({len(nores)} dead pointer(s)){RST}")
+        print(f"    {GRN}{fc['handshake']:>4}{RST}  complete a tools/list handshake out of the box  {DIM}({len(nostart)} didn't){RST}")
+        if speaks:
+            ex = [r.get('identifier') or r.get('id') or r.get('name') for r in speaks[:5]]
+            print(f"\n    {DIM}working examples: {', '.join(ex)}{RST}")
+        rate = 100 * fc['handshake'] // fc['installable'] if fc['installable'] else 0
+        print(f"\n  {(RED if rate < 50 else YEL)}● only {rate}% of installable registry servers "
+              f"completed a handshake with no configuration.{RST}")
+        print(f"     {DIM}(some of the rest need credentials in env, not all are broken — but 'listed' is")
+        print(f"      clearly not 'runs'. Pin + smoke-test a server before you wire it into an agent.){RST}")
+    print()
+
+
+if __name__ == "__main__":
+    main()

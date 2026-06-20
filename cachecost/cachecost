@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""cachecost — read a Claude API `usage` object and show what prompt caching
+actually cost (or saved) on that request, in model-agnostic base-input-token
+units.
+
+Prices for caching are fixed multipliers of a model's base input price, so you
+can reason about savings without plugging in dollars:
+
+    uncached input ....... 1.00x   (every token, every request)
+    cache WRITE .......... 1.25x   (5-min TTL; 2.00x for 1-hour TTL)
+    cache READ ........... 0.10x   (every repeat request that hits)
+
+Total prompt size = input_tokens + cache_creation_input_tokens + cache_read_input_tokens.
+`input_tokens` is only the *uncached remainder*.
+
+Usage:
+  cachecost explain <usage.json> [--write-mult M] [--read-mult M]
+  cachecost amortize <write_usage.json> <read_usage.json> [--reads N]
+"""
+import json
+import sys
+
+WRITE_MULT = 1.25   # 5-minute TTL
+READ_MULT = 0.10
+
+
+def die(msg, code=2):
+    sys.stderr.write(f"cachecost: {msg}\n")
+    sys.exit(code)
+
+
+def load_usage(path):
+    try:
+        obj = json.load(open(path))
+    except (OSError, json.JSONDecodeError) as e:
+        die(f"cannot read usage json {path}: {e}")
+    # accept either a raw usage object or a full message with .usage
+    u = obj.get("usage", obj)
+    return {
+        "input": int(u.get("input_tokens", 0)),
+        "write": int(u.get("cache_creation_input_tokens", 0)),
+        "read": int(u.get("cache_read_input_tokens", 0)),
+        "output": int(u.get("output_tokens", 0)),
+    }
+
+
+def parse_mults(args):
+    w, r, reads = WRITE_MULT, READ_MULT, 1
+    pos = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--write-mult":
+            w = float(args[i + 1]); i += 2
+        elif args[i] == "--read-mult":
+            r = float(args[i + 1]); i += 2
+        elif args[i] == "--reads":
+            reads = int(args[i + 1]); i += 2
+        else:
+            pos.append(args[i]); i += 1
+    return w, r, pos, reads
+
+
+def eq_cost(u, w, r):
+    """Input-equivalent cost in base-input-token units for one request."""
+    return u["input"] * 1.0 + u["write"] * w + u["read"] * r
+
+
+def uncached_eq(u):
+    """What the same prompt would cost with caching OFF."""
+    return (u["input"] + u["write"] + u["read"]) * 1.0
+
+
+def fmt(n):
+    return f"{n:,.0f}"
+
+
+def cmd_explain(args):
+    w, r, pos, _ = parse_mults(args)
+    if not pos:
+        die("usage: cachecost explain <usage.json>")
+    u = load_usage(pos[0])
+    prefix = u["write"] + u["read"]
+    cost = eq_cost(u, w, r)
+    base = uncached_eq(u)
+    saved = base - cost
+    pct = (saved / base * 100) if base else 0.0
+    hit = "WRITE (first hit — paid the 1.25x premium)" if u["write"] and not u["read"] \
+        else "READ (served from cache at 0.10x)" if u["read"] and not u["write"] \
+        else "MIXED" if u["read"] and u["write"] \
+        else "NO CACHE (cache_* both zero)"
+    print(f"  cache state : {hit}")
+    print(f"  uncached    : {fmt(u['input'])} tok")
+    print(f"  cache write : {fmt(u['write'])} tok  x{w}")
+    print(f"  cache read  : {fmt(u['read'])} tok  x{r}")
+    print(f"  cacheable prefix this request: {fmt(prefix)} tok")
+    print(f"  ---")
+    print(f"  input cost (eq tokens)     : {fmt(cost)}")
+    print(f"  same prompt, caching OFF   : {fmt(base)}")
+    if u["read"] and not u["write"]:
+        print(f"  >> saved {fmt(saved)} eq-tokens on this request ({pct:.1f}% off the input).")
+    elif u["write"] and not u["read"]:
+        print(f"  >> paid {fmt(cost - base)} extra eq-tokens to WRITE the cache "
+              f"(you earn it back on the 2nd hit).")
+
+
+def cmd_amortize(args):
+    w, r, pos, reads = parse_mults(args)
+    if len(pos) < 2:
+        die("usage: cachecost amortize <write_usage.json> <read_usage.json> [--reads N]")
+    uw = load_usage(pos[0])
+    ur = load_usage(pos[1])
+    prefix = uw["write"] or (ur["read"])
+    # N total requests: 1 write + (N-1) reads of the prefix.
+    write_eq = prefix * w
+    read_eq_each = prefix * r
+    cached_total = write_eq + read_eq_each * (reads - 1)
+    uncached_total = prefix * 1.0 * reads
+    saved = uncached_total - cached_total
+    pct = (saved / uncached_total * 100) if uncached_total else 0.0
+    print(f"  prefix cached: {fmt(prefix)} tok, reused across {reads} requests")
+    print(f"  cached  : 1 write ({fmt(write_eq)}) + {reads - 1} reads "
+          f"({fmt(read_eq_each)} each) = {fmt(cached_total)} eq-tok")
+    print(f"  uncached: {reads} x {fmt(prefix)} = {fmt(uncached_total)} eq-tok")
+    print(f"  >> {pct:.1f}% cheaper on the prefix across {reads} requests "
+          f"({fmt(saved)} eq-tokens saved).")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
+    cmd, rest = sys.argv[1], sys.argv[2:]
+    if cmd == "explain":
+        cmd_explain(rest)
+    elif cmd == "amortize":
+        cmd_amortize(rest)
+    else:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

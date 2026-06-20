@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""agent-waste — audit a Claude Code session for tokens it burned on redundant work.
+
+Static config tells you what an agent *can* do. Its transcript tells you what it
+*actually did* — and coding agents waste context in predictable, measurable ways:
+they re-read the same file, read a file they just edited (Claude Code's own harness
+tells agents not to — Edit already confirms the change), re-run the same command,
+re-grep the same pattern. Every redundant tool result is paid for again, in tokens,
+on the turn it lands and in every turn that carries it forward.
+
+agent-waste reads a transcript (~/.claude/projects/<slug>/<id>.jsonl), reconstructs
+each tool call and the size of the result it returned, and reports the wasted work:
+
+  • duplicate reads      — the same file read more than once
+  • read-after-own-edit  — a file read again after THIS session edited/wrote it
+  • repeated commands     — an identical Bash command run again
+  • repeated searches     — the same grep/glob run again
+
+Usage:
+  agent-waste <transcript.jsonl> [--top N] [--threshold-tokens N] [--json]
+  agent-waste --latest [...]        # the most recently modified transcript under ~/.claude/projects
+
+Wasted-token figures are an ESTIMATE (~4 chars/token; Claude's tokenizer isn't public)
+of the repeated tool-result payloads — a signal for which habits cost you, not a bill.
+Exit 0 normally; 1 if --threshold-tokens is exceeded, or on a fatal error.
+Heuristic: a few repeats are legitimate (re-run a test, re-check git status after a
+change). Read it as "here's where to look," not "every line is a bug."
+"""
+import glob
+import json
+import os
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+CHARS_PER_TOKEN = 4
+
+
+def est(chars):
+    return (chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+
+
+def result_chars(content):
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(len(x.get("text", "")) for x in content if isinstance(x, dict))
+    return 0
+
+
+def parse(path):
+    """Return an ordered list of tool calls: {idx, name, key, file, chars}."""
+    results = {}   # tool_use_id -> result chars
+    calls = []     # in order
+    for raw in open(path, encoding="utf-8", errors="replace"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        m = d.get("message")
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        role = m.get("role")
+        if role == "assistant":
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    calls.append({"id": b.get("id"), "name": b.get("name", "?"),
+                                  "input": b.get("input", {}) or {}})
+        elif role == "user":
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    results[b.get("tool_use_id")] = result_chars(b.get("content"))
+    # attach result sizes + a normalized key per call
+    out = []
+    for i, c in enumerate(calls):
+        inp = c["input"]
+        name = c["name"]
+        file = inp.get("file_path")
+        if name in ("Read", "Edit", "Write", "NotebookEdit"):
+            key = file
+        elif name in ("Grep", "Glob"):
+            key = f"{name}:{inp.get('pattern','')}|{inp.get('path','')}"
+        elif name == "Bash":
+            key = "Bash:" + (inp.get("command", "") or "").strip()
+        else:
+            key = None
+        out.append({"idx": i, "name": name, "key": key, "file": file,
+                    "chars": results.get(c["id"], 0)})
+    return out
+
+
+def analyze(calls):
+    findings = {"duplicate_read": [], "read_after_edit": [], "repeated_command": [], "repeated_search": []}
+    seen_read = {}     # file -> last idx it was read
+    edited_since = {}  # file -> True if Edit/Write happened since we last "knew" it
+    last_op = {}       # file -> 'read'|'edit'
+    cmd_count = {}      # bash command -> [idxs, chars]
+    search_count = {}   # search key -> [idxs, chars]
+
+    for c in calls:
+        name, key, f, ch = c["name"], c["key"], c["file"], c["chars"]
+        if name == "Read" and f:
+            if f in last_op:
+                # already encountered this file this session -> this read is redundant
+                if edited_since.get(f):
+                    findings["read_after_edit"].append({"file": f, "chars": ch})
+                else:
+                    findings["duplicate_read"].append({"file": f, "chars": ch})
+            last_op[f] = "read"; edited_since[f] = False
+        elif name in ("Edit", "Write", "NotebookEdit") and f:
+            last_op[f] = "edit"; edited_since[f] = True
+        elif name == "Bash" and key:
+            cmd_count.setdefault(key, []).append(ch)
+        elif name in ("Grep", "Glob") and key:
+            search_count.setdefault(key, []).append(ch)
+
+    for key, chs in cmd_count.items():
+        if len(chs) > 1:
+            findings["repeated_command"].append({"cmd": key[len("Bash:"):], "times": len(chs),
+                                                 "chars": sum(chs[1:])})
+    for key, chs in search_count.items():
+        if len(chs) > 1:
+            findings["repeated_search"].append({"search": key, "times": len(chs), "chars": sum(chs[1:])})
+
+    def waste(cat):
+        return sum(x["chars"] for x in findings[cat])
+    total = sum(waste(c) for c in findings)
+    return findings, total
+
+
+CAT = {
+    "duplicate_read":   ("duplicate reads", "same file read more than once", RED),
+    "read_after_edit":  ("re-reads after own edit", "read a file THIS session just edited (Edit already confirmed it)", RED),
+    "repeated_command": ("repeated commands", "an identical Bash command run again", YEL),
+    "repeated_search":  ("repeated searches", "the same grep/glob run again", YEL),
+}
+
+
+def report(path, calls, findings, total, args):
+    if args["json"]:
+        print(json.dumps({
+            "transcript": path, "tool_calls": len(calls),
+            "wasted_est_tokens": est(total), "wasted_chars": total,
+            "findings": {k: v for k, v in findings.items()},
+            "note": "est ~4 chars/token of repeated tool-result payloads",
+        }, indent=2))
+        return
+    print(f"agent-waste — {os.path.basename(path)}  {DIM}({len(calls)} tool calls){RST}\n")
+    any_waste = False
+    for cat, (label, desc, col) in CAT.items():
+        items = findings[cat]
+        if not items:
+            continue
+        any_waste = True
+        if cat in ("duplicate_read", "read_after_edit"):
+            # group by file
+            by = {}
+            for x in items:
+                by.setdefault(x["file"], {"n": 0, "chars": 0})
+                by[x["file"]]["n"] += 1; by[x["file"]]["chars"] += x["chars"]
+            cat_tok = est(sum(x["chars"] for x in items))
+            print(f"  {col}● {label}{RST}  {DIM}≈{cat_tok:,} tok wasted — {desc}{RST}")
+            for f, v in sorted(by.items(), key=lambda kv: -kv[1]["chars"])[:args["top"]]:
+                print(f"      {v['n']}× redundant  ≈{est(v['chars']):>6,} tok  {f}")
+        else:
+            cat_tok = est(sum(x["chars"] for x in items))
+            print(f"  {col}● {label}{RST}  {DIM}≈{cat_tok:,} tok wasted — {desc}{RST}")
+            kk = "cmd" if cat == "repeated_command" else "search"
+            for x in sorted(items, key=lambda x: -x["chars"])[:args["top"]]:
+                shown = x[kk] if kk == "cmd" else x[kk].split(":", 1)[-1]
+                print(f"      ran {x['times']}×  ≈{est(x['chars']):>6,} tok  {DIM}{shown[:70]}{RST}")
+        print()
+
+    if not any_waste:
+        print(f"  {GRN}✓ no obvious wasted work — no repeated reads, edits-then-reads, or duplicate commands.{RST}\n")
+        return
+    tok = est(total)
+    print(f"  {CYN}● ≈{tok:,} tokens{RST} of redundant tool results across this session "
+          f"{DIM}(estimate; ~4 chars/token).{RST}")
+    print(f"         {DIM}Each was paid for again on its turn and carried in context after. The biggest")
+    print(f"         lever is usually 're-read after own edit' — the harness already confirms an edit.{RST}\n")
+
+
+def find_latest():
+    base = os.path.expanduser("~/.claude/projects")
+    files = glob.glob(os.path.join(base, "*", "*.jsonl"))
+    return max(files, key=os.path.getmtime) if files else None
+
+
+def main():
+    a = {"top": 5, "threshold": None, "json": False, "latest": False, "path": None}
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--top" and i + 1 < len(argv): a["top"] = int(argv[i+1]); i += 2
+        elif x == "--threshold-tokens" and i + 1 < len(argv): a["threshold"] = int(argv[i+1]); i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        elif x == "--latest": a["latest"] = True; i += 1
+        elif not x.startswith("-"): a["path"] = x; i += 1
+        else: i += 1
+
+    path = a["path"]
+    if a["latest"] and not path:
+        path = find_latest()
+        if not path:
+            sys.stderr.write("agent-waste: no transcripts under ~/.claude/projects\n"); sys.exit(1)
+    if not path:
+        sys.stderr.write("usage: agent-waste <transcript.jsonl> [--latest] [--top N] [--threshold-tokens N] [--json]\n")
+        sys.exit(2)
+    if not os.path.isfile(path):
+        sys.stderr.write(f"agent-waste: no such transcript: {path}\n"); sys.exit(1)
+
+    calls = parse(path)
+    findings, total = analyze(calls)
+    report(path, calls, findings, total, a)
+    if a["threshold"] is not None and est(total) > a["threshold"]:
+        sys.exit(1)
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""context-carry — the real cost of a tool result is how LONG it stays in context.
+
+A coding agent runs a loop: every turn, it re-sends the entire accumulated context —
+every prior message and tool result — to the model as input. So a chunk the agent
+reads is NOT paid for once. It's paid again on every turn that follows, until the
+session ends or the context is compacted. That means the dominant cost driver isn't
+how big a read is — it's how EARLY it lands and how long the session runs.
+
+context-carry reads a Claude Code transcript and weights every tool result by its
+residence time:
+
+    carry(result) = result_tokens x (turns it is re-sent on after it lands)
+
+A 1,000-token file read on turn 3 of a 60-turn session isn't 1,000 tokens — it's
+~57,000 "token-turns" of carry. The same read on the last turn carries ~0. Two reads
+of identical size can differ 50x in true cost purely by WHEN they happened.
+
+This reframes context hygiene: the highest-leverage move is to avoid (or evict, or
+summarize) big reads EARLY, and to /compact long sessions before they get expensive.
+
+Usage:
+  context-carry <transcript.jsonl> [--top N] [--json] [--latest]
+
+Carry is reported in token-turns (tokens summed across every turn they're re-sent on).
+The session-wide ratio carry/naive-sum is what the literature calls the "amplification
+factor" (arxiv 2603.09023, median ~84x across 857 Claude Code sessions); this tool's
+contribution is the per-item leaderboard — which specific reads dominate, and that
+loading them early is why. Token counts are an ESTIMATE (~4 chars/token). Honest caveat below on prompt caching:
+caching makes re-sent tokens ~10x cheaper in DOLLARS, but they are not free, they still
+fill the finite context WINDOW, and the cache is fragile (5-min TTL, breaks on any
+earlier-token change). So carry-in-tokens is the real pressure on your window; carry-in-
+dollars is that, discounted. Exit 0 normally; 1 on a fatal error.
+"""
+import glob
+import json
+import os
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+CHARS_PER_TOKEN = 4
+CACHE_READ_MULT = 0.10   # cached input ~= 10% of fresh input price (Anthropic prompt caching)
+
+
+def est(chars):
+    return (chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+
+
+def result_chars(content):
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(len(x.get("text", "")) for x in content if isinstance(x, dict))
+    return 0
+
+
+def parse(path):
+    """Walk the transcript. Return (items, total_turns).
+    Each assistant message holding >=1 tool_use is one TURN (one model call). Each
+    tool result is attributed to the turn that requested it."""
+    results = {}      # tool_use_id -> result chars
+    calls = []        # (turn_index, name, label, id)
+    turn = 0
+    for raw in open(path, encoding="utf-8", errors="replace"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        m = d.get("message")
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        if m.get("role") == "assistant":
+            uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+            if not uses:
+                continue
+            turn += 1
+            for b in uses:
+                inp = b.get("input", {}) or {}
+                name = b.get("name", "?")
+                label = inp.get("file_path") or inp.get("pattern") or \
+                    (inp.get("command", "")[:48] if name == "Bash" else "") or name
+                calls.append({"turn": turn, "name": name, "label": label, "id": b.get("id")})
+        elif m.get("role") == "user":
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    results[b.get("tool_use_id")] = result_chars(b.get("content"))
+
+    total_turns = turn
+    items = []
+    for c in calls:
+        chars = results.get(c["id"], 0)
+        if not chars:
+            continue
+        resends = max(0, total_turns - c["turn"])   # later turns that re-send this result
+        toks = est(chars)
+        items.append({"turn": c["turn"], "name": c["name"], "label": c["label"],
+                      "tokens": toks, "resends": resends, "carry": toks * resends})
+    return items, total_turns
+
+
+def report(path, items, turns, args):
+    items.sort(key=lambda x: -x["carry"])
+    total_carry = sum(x["carry"] for x in items)
+    total_tokens = sum(x["tokens"] for x in items)
+    if args["json"]:
+        print(json.dumps({
+            "transcript": path, "turns": turns,
+            "total_result_tokens": total_tokens,
+            "total_carry_token_turns": total_carry,
+            "est_cached_carry_tokens": round(total_carry * CACHE_READ_MULT),
+            "top": items[:args["top"]],
+            "note": "carry = result_tokens x re-sends; tokens est ~4 chars/token",
+        }, indent=2))
+        return
+
+    print(f"context-carry — {os.path.basename(path)}  {DIM}({turns} turns){RST}\n")
+    if not items:
+        print(f"  {DIM}no tool results to weigh.{RST}\n"); return
+    print(f"  {DIM}heaviest carriers (result tokens × turns re-sent after they landed):{RST}\n")
+    for x in items[:args["top"]]:
+        col = RED if x["carry"] >= total_carry * 0.15 else (YEL if x["carry"] >= total_carry * 0.05 else CYN)
+        print(f"  {col}≈{x['carry']:>9,} tok·turns{RST}  {DIM}turn {x['turn']:>3}/{turns} · "
+              f"{x['tokens']:>5,} tok × {x['resends']:>3} re-sends{RST}  {x['label']}")
+    print()
+    naive = f"{total_tokens:,}"
+    print(f"  {CYN}● ≈{total_carry:,} token-turns{RST} of carried context "
+          f"{DIM}(vs a naive {naive}-token sum — carry is ~{total_carry//max(1,total_tokens)}× larger).{RST}")
+    print(f"         {DIM}Each tool result is re-sent on every later turn until the session is compacted.")
+    print(f"         Prompt caching makes those re-sends ~10× cheaper in $ (≈{round(total_carry*CACHE_READ_MULT):,}")
+    print(f"         effective tokens) but NOT free — and they still fill your finite context window.")
+    print(f"         Biggest lever: avoid/evict big reads EARLY, and /compact long sessions.{RST}\n")
+
+
+def find_latest():
+    files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+    return max(files, key=os.path.getmtime) if files else None
+
+
+def main():
+    a = {"top": 8, "json": False, "latest": False, "path": None}
+    argv = sys.argv[1:]; i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--top" and i + 1 < len(argv): a["top"] = int(argv[i+1]); i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        elif x == "--latest": a["latest"] = True; i += 1
+        elif not x.startswith("-"): a["path"] = x; i += 1
+        else: i += 1
+
+    path = a["path"]
+    if a["latest"] and not path:
+        path = find_latest()
+        if not path:
+            sys.stderr.write("context-carry: no transcripts under ~/.claude/projects\n"); sys.exit(1)
+    if not path:
+        sys.stderr.write("usage: context-carry <transcript.jsonl> [--latest] [--top N] [--json]\n"); sys.exit(2)
+    if not os.path.isfile(path):
+        sys.stderr.write(f"context-carry: no such transcript: {path}\n"); sys.exit(1)
+
+    items, turns = parse(path)
+    report(path, items, turns, a)
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

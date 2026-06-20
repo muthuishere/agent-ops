@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""claude-md-gen — generate a lean, correct starter CLAUDE.md from your repo.
+
+The highest-value thing in a CLAUDE.md is how to build and test — and it's the
+thing people most often forget to put in. But your repo already declares it:
+package.json scripts, a Makefile, pyproject.toml, go.mod, Cargo.toml. This reads
+those real signals and writes a short CLAUDE.md you can refine — so the agent
+starts every session knowing how to build, test, and where the code is. It does
+NOT invent rules; it only states what the repo actually says.
+
+  claude-md-gen [dir]        # print a starter CLAUDE.md for dir (default: .)
+  claude-md-gen [dir] -o     # write it to <dir>/CLAUDE.md (won't overwrite)
+"""
+import json
+import os
+import re
+import sys
+
+
+def read(path):
+    try:
+        return open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+
+
+def detect_commands(root):
+    """Return [(label, command), …] of real build/test/lint commands the repo declares."""
+    cmds = []
+    pj = os.path.join(root, "package.json")
+    if os.path.isfile(pj):
+        try:
+            scripts = json.loads(read(pj)).get("scripts", {})
+        except json.JSONDecodeError:
+            scripts = {}
+        pm = ("pnpm" if os.path.isfile(os.path.join(root, "pnpm-lock.yaml"))
+              else "yarn" if os.path.isfile(os.path.join(root, "yarn.lock"))
+              else "bun" if os.path.isfile(os.path.join(root, "bun.lockb"))
+              else "npm run")
+        for key in ("build", "test", "lint", "typecheck", "dev", "start"):
+            if key in scripts:
+                run = f"{pm} {key}" if pm != "npm run" else f"npm run {key}"
+                cmds.append((key.capitalize(), run))
+    if os.path.isfile(os.path.join(root, "pyproject.toml")) or os.path.isfile(os.path.join(root, "setup.py")):
+        cmds.append(("Test", "pytest"))
+    if os.path.isfile(os.path.join(root, "go.mod")):
+        cmds += [("Test", "go test ./..."), ("Build", "go build ./...")]
+    if os.path.isfile(os.path.join(root, "Cargo.toml")):
+        cmds += [("Test", "cargo test"), ("Build", "cargo build")]
+    if os.path.isfile(os.path.join(root, "Gemfile")):
+        cmds.append(("Test", "bundle exec rspec"))
+    mk = os.path.join(root, "Makefile")
+    if os.path.isfile(mk):
+        targets = re.findall(r"^([a-zA-Z][\w-]*):", read(mk), re.M)
+        for t in ("build", "test", "lint", "check"):
+            if t in targets:
+                cmds.append((t.capitalize(), f"make {t}"))
+    # de-dup by label, keep first
+    seen, out = set(), []
+    for label, cmd in cmds:
+        if label not in seen:
+            seen.add(label); out.append((label, cmd))
+    return out
+
+
+def detect_structure(root):
+    src = []
+    for d in ("src", "lib", "app", "cmd", "internal", "pkg", "packages", "apps", "tests", "test"):
+        if os.path.isdir(os.path.join(root, d)):
+            src.append(d)
+    return src
+
+
+def detect_lang(root):
+    for f, lang in (("package.json", "TypeScript/JavaScript"), ("go.mod", "Go"),
+                    ("Cargo.toml", "Rust"), ("pyproject.toml", "Python"),
+                    ("setup.py", "Python"), ("Gemfile", "Ruby"), ("pom.xml", "Java")):
+        if os.path.isfile(os.path.join(root, f)):
+            return lang
+    return None
+
+
+def generate(root):
+    name = os.path.basename(os.path.abspath(root))
+    lang = detect_lang(root)
+    cmds = detect_commands(root)
+    struct = detect_structure(root)
+    L = [f"# {name}", ""]
+    if lang:
+        L.append(f"{lang} project.")
+        L.append("")
+    if cmds:
+        L.append("## Commands")
+        for label, cmd in cmds:
+            L.append(f"- {label}: `{cmd}`")
+        L.append("")
+    else:
+        L.append("## Commands")
+        L.append("- Build/test: _add the commands here — this is the most useful line for the agent._")
+        L.append("")
+    if struct:
+        L.append("## Layout")
+        L.append("- Source: " + ", ".join(f"`{d}/`" for d in struct))
+        L.append("")
+    L.append("## Conventions")
+    L.append("- _Add only universally-applicable rules here. Keep this file lean —"
+             " it loads into every session. Put task-specific detail in your prompt,"
+             " and deeper docs under `docs/` or a skill._")
+    L.append("")
+    return "\n".join(L), dict(lang=lang, cmds=len(cmds), struct=len(struct))
+
+
+def main():
+    args = sys.argv[1:]
+    write = "-o" in args or "--write" in args
+    pos = [a for a in args if not a.startswith("-")]
+    root = pos[0] if pos else "."
+    if not os.path.isdir(root):
+        sys.stderr.write(f"claude-md-gen: not a directory: {root}\n"); sys.exit(2)
+    md, meta = generate(root)
+    if write:
+        out = os.path.join(root, "CLAUDE.md")
+        if os.path.exists(out):
+            sys.stderr.write(f"claude-md-gen: {out} already exists — refusing to overwrite.\n"); sys.exit(2)
+        open(out, "w").write(md)
+        sys.stderr.write(f"wrote {out}  ({meta['cmds']} command(s), {meta['struct']} source dir(s) detected). "
+                         f"Refine it, then `context-lint` it.\n")
+    else:
+        sys.stdout.write(md)
+
+
+if __name__ == "__main__":
+    main()

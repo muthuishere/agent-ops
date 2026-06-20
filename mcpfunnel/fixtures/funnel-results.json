@@ -1,0 +1,310 @@
+[
+  {
+    "name": "ai.adeu/adeu",
+    "rt": "npm",
+    "id": "@adeu/mcp-server",
+    "resolves": true,
+    "boot": "speaks:9"
+  },
+  {
+    "name": "ai.agenttrust/mcp-server",
+    "rt": "npm",
+    "id": "@agenttrust/mcp-server",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.ankimcp/anki-mcp-server",
+    "rt": "npm",
+    "id": "@ankimcp/anki-mcp-server",
+    "resolves": true,
+    "boot": "timeout"
+  },
+  {
+    "name": "ai.anomalyarmor/armor-mcp",
+    "rt": "pypi",
+    "id": "armor-mcp",
+    "resolves": true,
+    "boot": "speaks:53"
+  },
+  {
+    "name": "ai.autoblocks/contextlayer-mcp",
+    "rt": "npm",
+    "id": "@contextlayer/mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.autoblocks/ctxl",
+    "rt": "npm",
+    "id": "ctxl",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.autoblocks/ctxl-mcp",
+    "rt": "npm",
+    "id": "ctxl-mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.autonomad/computeback",
+    "rt": "npm",
+    "id": "@autonomad1/computeback-mcp",
+    "resolves": true,
+    "boot": "speaks:28"
+  },
+  {
+    "name": "ai.autonomad/travel",
+    "rt": "npm",
+    "id": "autonomad-travel",
+    "resolves": true,
+    "boot": "speaks:8"
+  },
+  {
+    "name": "ai.bolthub/registry",
+    "rt": "npm",
+    "id": "@bolthub/mcp-registry",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.borealhost/mcp",
+    "rt": "pypi",
+    "id": "borealhost-mcp",
+    "resolves": true,
+    "boot": "timeout"
+  },
+  {
+    "name": "ai.buywhere/buywhere-mcp",
+    "rt": "npm",
+    "id": "@buywhere/mcp-server",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.contextstudios/mcp",
+    "rt": "npm",
+    "id": "contextstudios-mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.cueapi/mcp",
+    "rt": "npm",
+    "id": "@cueapi/mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.deinai/creator-skill",
+    "rt": "pypi",
+    "id": "deinai-mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.demomagic/interactive-video-guide",
+    "rt": "npm",
+    "id": "@demomagic/mcp",
+    "resolves": true,
+    "boot": "speaks:18"
+  },
+  {
+    "name": "ai.dynsoft/sac",
+    "rt": "pypi",
+    "id": "sac-sdk",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.fodda/mcp-server",
+    "rt": "npm",
+    "id": "fodda-mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.getoptimal/optibot",
+    "rt": "npm",
+    "id": "@optimalai/optibot-mcp",
+    "resolves": true,
+    "boot": "speaks:22"
+  },
+  {
+    "name": "ai.getvet/vet",
+    "rt": "npm",
+    "id": "@getvetai/mcp",
+    "resolves": true,
+    "boot": "speaks:6"
+  },
+  {
+    "name": "ai.i18nagent/i18n-agent",
+    "rt": "npm",
+    "id": "@i18n-agent/mcp-client",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.imboard/dossier",
+    "rt": "npm",
+    "id": "@ai-dossier/mcp-server",
+    "resolves": true,
+    "boot": "speaks:10"
+  },
+  {
+    "name": "ai.kawacode/mcp",
+    "rt": "npm",
+    "id": "@kawacode/mcp",
+    "resolves": true,
+    "boot": "speaks:25"
+  },
+  {
+    "name": "ai.law/lawyer-search",
+    "rt": "npm",
+    "id": "lawai-mcp-server",
+    "resolves": true,
+    "boot": "speaks:7"
+  },
+  {
+    "name": "ai.linkguard/linkguard-mcp",
+    "rt": "pypi",
+    "id": "linkguard-mcp",
+    "resolves": true,
+    "boot": "speaks:3"
+  },
+  {
+    "name": "ai.marketintell/marketintell",
+    "rt": "npm",
+    "id": "marketintell",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.mcpcap/mcpcap",
+    "rt": "pypi",
+    "id": "mcpcap",
+    "resolves": true,
+    "boot": "speaks:9"
+  },
+  {
+    "name": "ai.meetlark/mcp-server",
+    "rt": "npm",
+    "id": "@meetlark/mcp-server",
+    "resolves": true,
+    "boot": "speaks:6"
+  },
+  {
+    "name": "ai.monnet/mcp",
+    "rt": "npm",
+    "id": "@monnet/mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.nauro/nauro",
+    "rt": "pypi",
+    "id": "nauro",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.nexustoken/nexustoken-sdk",
+    "rt": "pypi",
+    "id": "nexustoken-sdk",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.nocturnus/logic-server",
+    "rt": "npm",
+    "id": "nocturnusai-mcp",
+    "resolves": true,
+    "boot": "speaks:0"
+  },
+  {
+    "name": "ai.nudg3/brand-intelligence",
+    "rt": "pypi",
+    "id": "nudg3-mcp",
+    "resolves": true,
+    "boot": "speaks:11"
+  },
+  {
+    "name": "ai.obris/mcp",
+    "rt": "pypi",
+    "id": "obris-mcp",
+    "resolves": true,
+    "boot": "speaks:5"
+  },
+  {
+    "name": "ai.perplexity/mcp-server",
+    "rt": "npm",
+    "id": "@perplexity-ai/mcp-server",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.ponlo/server",
+    "rt": "npm",
+    "id": "ponlo-ai",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.proofslip/mcp-server",
+    "rt": "npm",
+    "id": "@proofslip/mcp-server",
+    "resolves": true,
+    "boot": "speaks:4"
+  },
+  {
+    "name": "ai.rapay/mcp-server",
+    "rt": "npm",
+    "id": "@rapay/mcp-server",
+    "resolves": true,
+    "boot": "speaks:7"
+  },
+  {
+    "name": "ai.ravenmcp/raven-mcp",
+    "rt": "npm",
+    "id": "raven-mcp",
+    "resolves": true,
+    "boot": "speaks:27"
+  },
+  {
+    "name": "ai.reka/mcp",
+    "rt": "pypi",
+    "id": "reka-mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.rolli/mcp",
+    "rt": "npm",
+    "id": "@rolli/mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.roxels/roxels-mcp",
+    "rt": "pypi",
+    "id": "roxels-mcp",
+    "resolves": true,
+    "boot": "no-handshake"
+  },
+  {
+    "name": "ai.shawndurrani/mcp-merchant",
+    "rt": "npm",
+    "id": "mcp-merchant",
+    "resolves": true,
+    "boot": "speaks:4"
+  },
+  {
+    "name": "ai.shipeasy/mcp",
+    "rt": "npm",
+    "id": "@shipeasy/mcp",
+    "resolves": true,
+    "boot": "speaks:44"
+  }
+]

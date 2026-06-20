@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# recover — find and restore git commits that became unreachable
+# (worktree removed, branch deleted, reset --hard, abandoned detached HEAD).
+# Time-bounded: only works until `git gc --prune=now` (or the gc grace period)
+# removes the dangling objects from the object store.
+set -euo pipefail
+
+die() { echo "recover: $*" >&2; exit 2; }
+git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+
+# List dangling commits, newest first, with short-sha / author / date / subject / diffstat.
+cmd_list() {
+  # --no-reflogs => only commits unreachable from refs AND reflogs (true orphans).
+  local shas
+  shas=$(git fsck --no-reflogs --dangling 2>/dev/null | awk '/dangling commit/ {print $3}')
+  [ -n "$shas" ] || { echo "no dangling commits found (nothing to recover, or already gc'd)"; return 0; }
+
+  # Sort by commit time, newest first.
+  local sorted
+  sorted=$(for s in $shas; do
+             printf '%s %s\n' "$(git show -s --format=%ct "$s")" "$s"
+           done | sort -rn | awk '{print $2}')
+
+  # Build the whole report in memory, then emit once. A single write means a
+  # downstream consumer that closes early (`recover list | grep -q`) can't make
+  # us fail mid-loop under `set -e`.
+  local out=""
+  for s in $sorted; do
+    out+=$(git show -s \
+             --format='%C(yellow)%h%C(reset)  %C(green)%an%C(reset)  %C(cyan)%ad%C(reset)  %s' \
+             --date=format:'%Y-%m-%d %H:%M' "$s")$'\n'
+    local stat
+    stat=$(git show --stat --oneline "$s" 2>/dev/null | tail -1 | sed 's/^ *//')
+    [ -n "$stat" ] && out+="    $stat"$'\n'
+  done
+  printf '%s' "$out" 2>/dev/null || true
+}
+
+cmd_show() {
+  [ $# -eq 1 ] || die "usage: recover show <sha>"
+  git show "$1"
+}
+
+cmd_to() {
+  [ $# -eq 2 ] || die "usage: recover to <branch> <sha>"
+  local branch=$1 sha=$2
+  git rev-parse --verify "${sha}^{commit}" >/dev/null 2>&1 || die "$sha is not a commit (gc'd already?)"
+  git branch "$branch" "$sha"
+  echo "recovered $sha -> branch '$branch'"
+  echo "  git switch $branch   # to check it out"
+}
+
+case "${1:-}" in
+  list)  shift; cmd_list "$@";;
+  show)  shift; cmd_show "$@";;
+  to)    shift; cmd_to "$@";;
+  *) cat >&2 <<EOF
+usage:
+  recover list                 # dangling commits, newest first
+  recover show <sha>           # full diff of one
+  recover to <branch> <sha>    # restore it onto a new branch
+EOF
+     exit 2;;
+esac

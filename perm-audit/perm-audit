@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""perm-audit — is your Claude Code agent's permission config too loose?
+
+frisk checks what an agent reads; reach checks what it could exfiltrate; guard
+blocks destructive commands at runtime. perm-audit checks the layer underneath
+all of them: the `.claude/settings.json` permission config that decides how much
+the agent can do *without asking you*. Over-permissive settings turn a single
+injected instruction into a free hand.
+
+  perm-audit [settings.json]   # default: ./.claude/settings.json
+
+Exit 0 = no high-severity issues, 1 = at least one HIGH/CRITICAL finding.
+"""
+import json
+import os
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = CYN = DIM = RST = ""
+SEV = {"CRITICAL": RED, "HIGH": RED, "WARN": YEL, "INFO": CYN}
+
+# a specifier that auto-approves a whole tool (pure wildcard, no narrowing)
+BROAD_SPECS = {"", "*", "**", ":*"}
+EGRESS_TOOLS = ("WebFetch", "WebSearch")
+EGRESS_BASH = ("curl", "wget", "nc", "scp", "ssh")
+
+
+def rule_parts(rule):
+    """'Bash(npm test *)' -> ('Bash', 'npm test *'); 'WebFetch' -> ('WebFetch', None)."""
+    rule = rule.strip()
+    if "(" in rule and rule.endswith(")"):
+        tool, _, rest = rule.partition("(")
+        return tool.strip(), rest[:-1].strip()
+    return rule, None
+
+
+def audit(settings):
+    findings = []  # (sev, title, detail)
+    add = lambda s, t, d: findings.append((s, t, d))
+
+    perms = settings.get("permissions", {}) if isinstance(settings, dict) else {}
+    allow = perms.get("allow", []) or []
+    deny = perms.get("deny", []) or []
+    mode = settings.get("defaultMode")
+
+    # 1. permission mode
+    if mode == "bypassPermissions":
+        add("CRITICAL", "defaultMode is bypassPermissions",
+            "every tool call runs with NO permission check. One injected instruction = full shell. "
+            "Use only inside a throwaway sandbox.")
+    elif mode == "acceptEdits":
+        add("WARN", "defaultMode is acceptEdits",
+            "all file edits are auto-approved without review.")
+
+    # 2. auto-trust all MCP servers
+    if settings.get("enableAllProjectMcpServers") is True:
+        add("WARN", "enableAllProjectMcpServers is true",
+            "every MCP server in .mcp.json is auto-approved — each is an untrusted tool/instruction surface.")
+
+    # 3. broad allow rules
+    for rule in allow:
+        tool, spec = rule_parts(rule)
+        broad = spec is None or spec.strip() in BROAD_SPECS
+        if broad:
+            sev = "HIGH" if tool == "Bash" else "WARN"
+            add(sev, f"allow rule '{rule}' auto-approves ALL {tool}",
+                f"any {tool} call runs without asking. Narrow it to the specific commands/paths you trust.")
+        elif tool in EGRESS_TOOLS:
+            add("WARN", f"allow rule '{rule}' permits network egress ({tool})",
+                "a hijacked agent can exfiltrate over this. Scope it to needed domains, or move it to 'ask'.")
+        elif tool == "Bash" and spec and spec.split()[0] in EGRESS_BASH:
+            add("WARN", f"allow rule '{rule}' auto-approves an egress command",
+                f"'{spec.split()[0]}' can send data out. Keep it in 'ask', not 'allow'.")
+
+    # 4. secret-read protection (deny coverage)
+    deny_text = " ".join(deny).lower()
+    has_secret_deny = any(k in deny_text for k in (".env", "secret", "id_rsa", ".ssh", "credentials"))
+    def is_broad(r):
+        t, s = rule_parts(r)
+        return t == "Bash" and (s is None or s.strip() in BROAD_SPECS)
+    bash_broad = any(is_broad(r) for r in allow)
+    if (allow or mode in ("bypassPermissions", "acceptEdits")) and not has_secret_deny:
+        sev = "HIGH" if (bash_broad or mode == "bypassPermissions") else "INFO"
+        add(sev, "no deny rules protecting secrets",
+            "add deny entries so the agent can't read them even if it tries — e.g. "
+            "Read(./.env), Read(./.env.*), Read(./secrets/**), Read(~/.ssh/**), Bash(curl *).")
+
+    return findings
+
+
+def main():
+    path = sys.argv[1] if len(sys.argv) > 1 else ".claude/settings.json"
+    if not os.path.exists(path):
+        print(f"perm-audit: no {path} — Claude Code defaults apply (prompts before risky actions). "
+              f"That's the safe baseline; this is only worth running once you've added an allowlist.")
+        sys.exit(0)
+    try:
+        settings = json.load(open(path))
+    except (OSError, json.JSONDecodeError) as e:
+        sys.stderr.write(f"perm-audit: cannot read {path}: {e}\n"); sys.exit(2)
+
+    findings = audit(settings)
+    print(f"perm-audit — {path}\n")
+    if not findings:
+        print(f"  ✓ no over-permissive settings found.")
+        sys.exit(0)
+    order = {"CRITICAL": 0, "HIGH": 1, "WARN": 2, "INFO": 3}
+    for sev, title, detail in sorted(findings, key=lambda f: order[f[0]]):
+        print(f"  {SEV[sev]}● {sev:<8}{RST} {title}")
+        print(f"             {DIM}{detail}{RST}")
+    high = sum(1 for s, _, _ in findings if s in ("CRITICAL", "HIGH"))
+    print()
+    print(f"  {RED if high else YEL}{len(findings)} finding(s)"
+          + (f", {high} high-severity" if high else "") + f".{RST}")
+    sys.exit(1 if high else 0)
+
+
+if __name__ == "__main__":
+    main()

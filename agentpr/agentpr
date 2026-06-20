@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""agentpr — how do AI-agent pull requests differ from human ones? Measure it.
+
+Coding agents now open a lot of pull requests, and the worry in every 2026 engineering
+report is the same: they're bigger and they get less review. AI adoption tracked a 154%
+jump in PR size (DORA) and a 31% rise in PRs merged with no review at all (Cortex). agentpr
+checks that against real data instead of vibes.
+
+It uses a clean ground-truth label: a PR is "agent" if its commits/body carry the Claude
+Code trailer ("Generated with Claude Code" / "Co-Authored-By: Claude"). For a repo (or a
+saved corpus) it splits merged PRs into agent vs human and compares:
+
+  • SIZE         lines changed + files touched
+  • REVIEW       review comments + discussion comments the PR drew
+  • TIME-TO-MERGE minutes from open to merge
+  • RUBBER-STAMP  % merged with zero review comments AND under 10 minutes open
+
+Usage:
+  agentpr --repo owner/name        # live: classify + analyze a repo's merged PRs (needs gh)
+  agentpr --prs corpus.json        # offline: analyze a saved PR record set
+  agentpr [--json]
+
+Each PR record is {repo, agent:bool, size, files, review, ttm}. The comparison is
+deterministic; "agent" is self-identified by the trailer, so it undercounts (a human set
+may contain a few unlabeled agent PRs) — which is conservative. Exit 0 always (a report).
+"""
+import json
+import os
+import subprocess
+import sys
+import statistics
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+
+def med(xs):
+    xs = [x for x in xs if x is not None]
+    return round(statistics.median(xs), 1) if xs else None
+
+
+def summarize(recs):
+    out = {}
+    for grp in ("agent", "human"):
+        g = [x for x in recs if bool(x.get("agent")) == (grp == "agent")]
+        if not g:
+            out[grp] = None
+            continue
+        rubber = sum(1 for x in g if (x.get("review") or 0) == 0
+                     and x.get("ttm") is not None and x["ttm"] < 10)
+        out[grp] = {
+            "n": len(g),
+            "median_size": med([x.get("size") for x in g]),
+            "median_files": med([x.get("files") for x in g]),
+            "median_review": med([x.get("review") for x in g]),
+            "median_ttm_min": med([x.get("ttm") for x in g]),
+            "rubber_stamped": rubber,
+            "rubber_stamped_pct": round(100 * rubber / len(g)),
+        }
+    return out
+
+
+# --- live collection (gh) -----------------------------------------------------
+def gh_json(args):
+    try:
+        out = subprocess.run(["gh"] + args, capture_output=True, text=True, timeout=40)
+        return json.loads(out.stdout) if out.returncode == 0 and out.stdout.strip() else None
+    except Exception:
+        return None
+
+
+def ttm_min(c, m):
+    if not c or not m:
+        return None
+    from datetime import datetime
+    try:
+        a = datetime.fromisoformat(c.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(m.replace("Z", "+00:00"))
+        return (b - a).total_seconds() / 60
+    except Exception:
+        return None
+
+
+def collect_repo(repo):
+    agent = gh_json(["search", "prs", "Generated with Claude Code", "--merged",
+                     "--repo", repo, "--limit", "100", "--json", "number"]) or []
+    agentset = {p["number"] for p in agent}
+    pulls = gh_json(["api", f"repos/{repo}/pulls?state=closed&per_page=40&sort=updated&direction=desc"]) or []
+    recs = []
+    for p in pulls:
+        if not p.get("merged_at"):
+            continue
+        num = p["number"]
+        d = gh_json(["api", f"repos/{repo}/pulls/{num}",
+                     "--jq", "{additions,deletions,changed_files,comments,review_comments,created_at,merged_at}"])
+        if not d:
+            continue
+        recs.append({"repo": repo, "num": num, "agent": num in agentset,
+                     "size": (d.get("additions") or 0) + (d.get("deletions") or 0),
+                     "files": d.get("changed_files") or 0,
+                     "review": (d.get("review_comments") or 0) + (d.get("comments") or 0),
+                     "ttm": ttm_min(d.get("created_at"), d.get("merged_at"))})
+        if len(recs) >= 25:
+            break
+    return recs
+
+
+def main():
+    a = {"repo": None, "prs": None, "json": False}
+    argv = sys.argv[1:]; i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--repo" and i + 1 < len(argv): a["repo"] = argv[i+1]; i += 2
+        elif x == "--prs" and i + 1 < len(argv): a["prs"] = argv[i+1]; i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        else: i += 1
+
+    if a["prs"]:
+        recs = json.loads(open(a["prs"]).read())
+    elif a["repo"]:
+        recs = collect_repo(a["repo"])
+    else:
+        sys.stderr.write("usage: agentpr --repo owner/name | --prs corpus.json\n"); sys.exit(2)
+
+    s = summarize(recs)
+    if a["json"]:
+        print(json.dumps({"records": len(recs), "summary": s}, indent=2)); return
+
+    label = a["repo"] or os.path.basename(a["prs"] or "corpus")
+    print(f"agentpr — {len(recs)} merged PRs ({label})\n")
+    if not (s.get("agent") and s.get("human")):
+        print(f"  {DIM}need both agent and human PRs to compare; found "
+              f"{(s.get('agent') or {}).get('n',0)} agent / {(s.get('human') or {}).get('n',0)} human.{RST}\n")
+        return
+    ag, hu = s["agent"], s["human"]
+    print(f"  {'':14}{CYN}agent{RST}        {DIM}human{RST}")
+    rows = [("median lines changed", "median_size"), ("median files touched", "median_files"),
+            ("median review comments", "median_review"), ("median minutes to merge", "median_ttm_min")]
+    for lbl, k in rows:
+        av, hv = ag[k], hu[k]
+        print(f"  {lbl:<22} {str(av):>8}     {DIM}{str(hv):>8}{RST}")
+    print(f"  {'rubber-stamped':<22} {RED}{ag['rubber_stamped_pct']:>7}%{RST}     {DIM}{hu['rubber_stamped_pct']:>7}%{RST}")
+    print(f"  {DIM}(rubber-stamped = 0 review comments AND merged in under 10 minutes){RST}")
+
+    print()
+    size_x = round(ag["median_size"] / hu["median_size"], 1) if hu["median_size"] else None
+    rev_a, rev_h = ag["median_review"], hu["median_review"]
+    # If BOTH groups are heavily rubber-stamped, the story isn't agent-vs-human — it's that
+    # the repo self-merges everything. Lead with that (it's the honest headline).
+    if ag["rubber_stamped_pct"] >= 40 and hu["rubber_stamped_pct"] >= 40:
+        print(f"  {RED}● it's not agent-vs-human — this repo rubber-stamps everything: "
+              f"{ag['rubber_stamped_pct']}% of agent PRs and {hu['rubber_stamped_pct']}% of human PRs "
+              f"merged with no review in under 10 minutes.{RST}")
+        print(f"     {DIM}The agent didn't lower the review bar; the bar was already on the floor. The 2026")
+        print(f"     'AI skips review' worry is really a self-merge-culture problem here — require a review at all.{RST}\n")
+        return
+    bits = []
+    if size_x and size_x > 1.2:
+        bits.append(f"{size_x}x larger")
+    if rev_a is not None and rev_h is not None and rev_a < rev_h:
+        bits.append(f"fewer review comments ({rev_a} vs {rev_h})")
+    if ag["rubber_stamped_pct"] > hu["rubber_stamped_pct"] + 5:
+        bits.append(f"more rubber-stamped ({ag['rubber_stamped_pct']}% vs {hu['rubber_stamped_pct']}%)")
+    if bits:
+        print(f"  {YEL}● agent PRs here are {', '.join(bits)}.{RST}")
+        print(f"     {DIM}Bigger changes getting less review is the failure the 2026 reports warn about —")
+        print(f"     gate agent PR size and require a review before merge.{RST}\n")
+    else:
+        print(f"  {GRN}● no significant agent/human gap in this sample.{RST}\n")
+
+
+if __name__ == "__main__":
+    main()

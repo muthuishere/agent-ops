@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# auto-snapshot — never lose an agent's uncommitted work again.
+#
+# The one loss class nothing can recover is work that was *never committed* —
+# an agent edits files, the worktree gets cleaned, and there's nothing in the
+# object store to fsck back. auto-snapshot closes that gap: as a Claude Code
+# Stop hook it snapshots the dirty working tree every turn into git's object
+# store, WITHOUT touching your working tree, index, branch, or history.
+#
+# It uses `git stash create` (which writes a dangling commit of the dirty state
+# and changes nothing else) and pins it under refs/wip-snapshots/<ts> so gc
+# can't drop it. Your work is always recoverable; your history stays clean.
+#
+#   auto-snapshot               # take a snapshot (the hook action; no-op if clean)
+#   auto-snapshot list          # list snapshots, newest first
+#   auto-snapshot restore <sha> # re-apply a snapshot onto your working tree
+#   auto-snapshot prune [--keep N]   # keep the N newest snapshots (default 50)
+#
+# Install as a Stop hook (.claude/settings.json):
+#   {"hooks":{"Stop":[{"hooks":[{"type":"command",
+#     "command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/auto-snapshot"}]}]}}
+set -uo pipefail
+
+gitdir=$(git rev-parse --git-dir 2>/dev/null) || {
+  case "${1:-snapshot}" in snapshot|"") exit 0;; esac   # hook context: silently no-op
+  echo "auto-snapshot: not inside a git repository" >&2; exit 2; }
+LOG="$gitdir/wip-snapshots.log"
+
+cmd_snapshot() {
+  [ -t 0 ] || cat >/dev/null 2>&1 || true     # drain any hook JSON on stdin; ignore it
+  # Snapshot EVERYTHING dirty — including untracked files (the work `git stash
+  # create` silently drops) — by staging into a throwaway index, so the real
+  # index and working tree are never touched.
+  local tmpidx tree sha head
+  tmpidx=$(mktemp "${TMPDIR:-/tmp}/auto-snap-idx.XXXXXX")
+  export GIT_INDEX_FILE="$tmpidx"
+  git read-tree HEAD 2>/dev/null || true
+  git add -A 2>/dev/null || true               # tracked edits + untracked (respects .gitignore)
+  tree=$(git write-tree 2>/dev/null || true)
+  unset GIT_INDEX_FILE; rm -f "$tmpidx"
+  head=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
+  [ -n "$tree" ] || exit 0
+  # nothing dirty? then the snapshot tree equals HEAD's tree — skip.
+  if [ -n "$head" ] && [ "$tree" = "$(git rev-parse -q "HEAD^{tree}" 2>/dev/null)" ]; then
+    exit 0
+  fi
+  local parent=(); [ -n "$head" ] && parent=(-p "$head")
+  sha=$(git commit-tree "$tree" "${parent[@]}" -m "auto-snapshot $(date +%FT%T)" 2>/dev/null || true)
+  [ -n "$sha" ] || exit 0
+  local ts branch files
+  ts=$(date +%s)
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+  files=$(git diff --name-only "${head:-$sha}" "$sha" 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' ')
+  git update-ref "refs/wip-snapshots/$ts" "$sha"
+  printf '%s\t%s\t%s\t%s\n' "$ts" "$sha" "$branch" "$files" >> "$LOG"
+  echo "auto-snapshot: saved ${sha:0:8} ($files file(s) on $branch) — restore with: auto-snapshot restore ${sha:0:8}" >&2
+}
+
+# resolve a full snapshot sha from a prefix/`latest`
+resolve() {
+  local q="$1"
+  if [ "$q" = latest ]; then
+    git for-each-ref --sort=-refname --format='%(objectname)' refs/wip-snapshots/ | head -1
+    return
+  fi
+  git for-each-ref --format='%(objectname)' refs/wip-snapshots/ | grep -i "^$q" | head -1
+}
+
+cmd_list() {
+  local any=0
+  while read -r ref sha; do
+    any=1
+    local ts="${ref##*/}" age branch files
+    age=$(( ($(date +%s) - ts) ))
+    age=$([ $age -lt 5400 ] && echo "$((age/60))m" || ([ $age -lt 172800 ] && echo "$((age/3600))h" || echo "$((age/86400))d"))
+    branch=$(awk -F'\t' -v s="$sha" '$2==s{b=$3} END{print b}' "$LOG" 2>/dev/null)
+    files=$(git show --stat --format= "$sha" 2>/dev/null | tail -1 | sed 's/^ *//')
+    printf '  %-7s %s  [%s]  %s\n' "${age} ago" "${sha:0:8}" "${branch:-?}" "${files:-(no diff)}"
+  done < <(git for-each-ref --sort=-refname --format='%(refname) %(objectname)' refs/wip-snapshots/)
+  [ "$any" = 1 ] || echo "  (no snapshots yet)"
+}
+
+cmd_restore() {
+  [ $# -ge 1 ] || { echo "usage: auto-snapshot restore <sha|latest>" >&2; exit 2; }
+  local sha; sha=$(resolve "$1")
+  [ -n "$sha" ] || { echo "auto-snapshot: no snapshot matching '$1'" >&2; exit 2; }
+  # restore the snapshot's files into the working tree (overwrites with the
+  # snapshot's version of each path it contains; doesn't delete newer files).
+  git checkout "$sha" -- . && echo "auto-snapshot: restored ${sha:0:8} into your working tree"
+}
+
+cmd_prune() {
+  local keep=50
+  [ "${1:-}" = --keep ] && keep="${2:?--keep needs a number}"
+  local n=0
+  while read -r ref; do
+    n=$((n+1))
+    [ "$n" -gt "$keep" ] && git update-ref -d "$ref"
+  done < <(git for-each-ref --sort=-refname --format='%(refname)' refs/wip-snapshots/)
+  echo "auto-snapshot: kept newest $keep, pruned $(( n>keep ? n-keep : 0 ))"
+}
+
+case "${1:-snapshot}" in
+  snapshot|"") cmd_snapshot;;
+  list)        cmd_list;;
+  restore)     shift; cmd_restore "$@";;
+  prune)       shift; cmd_prune "$@";;
+  *) echo "auto-snapshot: unknown command '$1' (snapshot|list|restore|prune)" >&2; exit 2;;
+esac

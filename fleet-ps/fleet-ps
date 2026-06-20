@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""fleet-ps — `ps` for your Claude Code agent fleet: every recent session, one screen.
+
+session-stats tells you about one session; worktree-doctor about one repo's
+worktrees. fleet-ps zooms out to the whole machine: it scans
+~/.claude/projects/*/ for the newest transcript per project and shows what's
+been running — most-recently-active first — with each session's project, git
+branch, age, size, and a health flag (is it stuck on the thinking-block 400?).
+
+Reads the project path and branch from the transcript itself (`cwd` /
+`gitBranch`), so it's accurate even though the on-disk dir name is a lossy slug.
+
+Usage:
+  fleet-ps                 # sessions active in the last 6 hours
+  fleet-ps --since 30      # active in the last 30 minutes
+  fleet-ps --all           # every session on the machine
+"""
+import json
+import os
+import sys
+import time
+
+RED = "\033[31m"; GREEN = "\033[32m"; DIM = "\033[2m"; BOLD = "\033[1m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = GREEN = DIM = BOLD = RST = ""
+THINKING = ("thinking", "redacted_thinking")
+ROOT = os.environ.get("CLAUDE_PROJECTS_DIR") or os.path.expanduser("~/.claude/projects")
+
+
+def head_meta(path, max_lines=60):
+    """cwd + gitBranch from the first lines that carry them."""
+    cwd = branch = None
+    try:
+        with open(path) as fh:
+            for i, line in enumerate(fh):
+                if i > max_lines:
+                    break
+                try:
+                    o = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cwd = cwd or o.get("cwd")
+                branch = branch or o.get("gitBranch")
+                if cwd and branch:
+                    break
+    except OSError:
+        pass
+    return cwd, branch
+
+
+def tail_lines(path, nbytes=65536):
+    """Last logical lines of a (possibly large) jsonl, cheaply."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            if size > nbytes:
+                fh.seek(-nbytes, os.SEEK_END)
+                fh.readline()  # drop partial line
+            data = fh.read()
+    except OSError:
+        return []
+    return data.decode("utf-8", "replace").splitlines()
+
+
+def is_wedged(path):
+    """True if the last assistant turn ends in a thinking block (the 400 wedge)."""
+    last_assistant_ends_thinking = False
+    for line in tail_lines(path):
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if o.get("type") != "assistant":
+            continue
+        msg = o.get("message")
+        c = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(c, list) and c and isinstance(c[-1], dict):
+            last_assistant_ends_thinking = c[-1].get("type") in THINKING
+        else:
+            last_assistant_ends_thinking = False
+    return last_assistant_ends_thinking
+
+
+def ago(secs):
+    s = int(secs)
+    if s < 90:
+        return f"{s}s"
+    if s < 5400:
+        return f"{s // 60}m"
+    if s < 172800:
+        return f"{s // 3600}h"
+    return f"{s // 86400}d"
+
+
+def shorten(path, n=2):
+    if not path:
+        return "?"
+    parts = path.rstrip("/").split("/")
+    return "…/" + "/".join(parts[-n:]) if len(parts) > n else path
+
+
+def main():
+    args = sys.argv[1:]
+    since_min = 360.0
+    show_all = "--all" in args
+    if "--since" in args:
+        since_min = float(args[args.index("--since") + 1])
+    if not os.path.isdir(ROOT):
+        sys.stderr.write(f"fleet-ps: no {ROOT}\n"); sys.exit(2)
+
+    now = time.time()
+    rows = []
+    for slug in os.listdir(ROOT):
+        d = os.path.join(ROOT, slug)
+        if not os.path.isdir(d):
+            continue
+        js = []
+        for f in os.listdir(d):
+            if not f.endswith(".jsonl"):
+                continue
+            p = os.path.join(d, f)
+            try:
+                js.append((os.path.getmtime(p), p))
+            except OSError:
+                continue  # dangling/racing file — skip
+        if not js:
+            continue
+        mtime, newest = max(js)
+        age = now - mtime
+        if not show_all and age > since_min * 60:
+            continue
+        cwd, branch = head_meta(newest)
+        rows.append({
+            "age": age, "path": newest,
+            "cwd": cwd or slug, "branch": branch or "?",
+            "sid": os.path.basename(newest)[:8],
+            "kb": os.path.getsize(newest) // 1024,
+            "wedged": is_wedged(newest),
+        })
+
+    rows.sort(key=lambda r: r["age"])
+    scope = "all" if show_all else f"active < {ago(since_min*60)}"
+    wedged = sum(1 for r in rows if r["wedged"])
+    print(f"fleet-ps — {len(rows)} session(s) ({scope})"
+          + (f", {RED}{wedged} wedged{RST}" if wedged else "") + "\n")
+    if not rows:
+        print(f"  {DIM}(none — try --since <minutes> or --all){RST}"); return
+    print(f"  {DIM}{'AGO':>4}  {'HEALTH':<7} {'BRANCH':<22} PROJECT{RST}")
+    for r in rows:
+        h = f"{RED}⚠ wedged{RST}" if r["wedged"] else f"{GREEN}✓ ok{RST}    "
+        br = (r["branch"][:21] + "…") if len(r["branch"]) > 22 else r["branch"]
+        print(f"  {ago(r['age']):>4}  {h} {DIM}{br:<22}{RST} {shorten(r['cwd'])}  "
+              f"{DIM}{r['sid']} · {r['kb']}KB{RST}")
+    if wedged:
+        print(f"\n{DIM}un-wedge a stuck one:  claude-fleet rescue session fix \"$(… find its transcript …)\" --write{RST}")
+
+
+if __name__ == "__main__":
+    main()

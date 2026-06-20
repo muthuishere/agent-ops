@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""session-stats — what did this Claude Code session actually do, and is it healthy?
+
+A Claude Code session is a JSON-lines transcript at
+~/.claude/projects/<slug>/<session-id>.jsonl (slug = your working dir with the
+slashes turned to dashes). Each line is one event with a `type`:
+
+  mode / permission-mode / file-history-snapshot / system / ...   bookkeeping
+  user                                                            a user/tool_result turn
+  assistant                                                       a model turn (message.content[] blocks)
+
+The interesting content is in the assistant turns: a `message.content` list of
+blocks, each `thinking`, `text`, or `tool_use` (with a `name` and `input`).
+session-stats reads that and summarizes the run.
+
+Usage:
+  session-stats find [project_dir]   # newest transcript for a project (default: cwd)
+  session-stats <transcript.jsonl>   # summarize a session
+"""
+import json
+import os
+import sys
+from collections import Counter
+
+THINKING = ("thinking", "redacted_thinking")
+
+
+def die(msg, code=2):
+    sys.stderr.write(f"session-stats: {msg}\n")
+    sys.exit(code)
+
+
+def find(project):
+    slug = os.path.abspath(project).replace("/", "-")
+    base = os.path.expanduser(f"~/.claude/projects/{slug}")
+    if not os.path.isdir(base):
+        die(f"no transcript dir for {project} (looked in {base})", 3)
+    js = [os.path.join(base, f) for f in os.listdir(base) if f.endswith(".jsonl")]
+    if not js:
+        die(f"no .jsonl transcripts in {base}", 3)
+    print(max(js, key=os.path.getmtime))
+
+
+def content_of(obj):
+    if not isinstance(obj, dict):
+        return None
+    m = obj.get("message")
+    return m.get("content") if isinstance(m, dict) else None
+
+
+def summarize(path, show_all_files=False):
+    if not os.path.isfile(path):
+        die(f"no such transcript: {path}")
+    raw = open(path).read().splitlines()
+    line_types = Counter()
+    tools = Counter()
+    files = set()
+    bash_cmds = 0
+    n_user = n_asst = n_think = n_think_empty = 0
+    session_id = None
+    last_asst_ends_thinking = False
+
+    for line in raw:
+        if not line.strip():
+            continue
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            line_types["<unparseable>"] += 1
+            continue
+        t = o.get("type", "<none>")
+        line_types[t] += 1
+        session_id = session_id or o.get("sessionId")
+        c = content_of(o)
+        if t == "user":
+            n_user += 1
+        elif t == "assistant":
+            n_asst += 1
+            ends_thinking = False
+            if isinstance(c, list):
+                for b in c:
+                    if not isinstance(b, dict):
+                        continue
+                    bt = b.get("type")
+                    ends_thinking = bt in THINKING
+                    if bt in THINKING:
+                        n_think += 1
+                        if not (b.get("thinking") or "").strip():
+                            n_think_empty += 1
+                    elif bt == "tool_use":
+                        name = b.get("name", "?")
+                        tools[name] += 1
+                        inp = b.get("input") or {}
+                        if name == "Bash":
+                            bash_cmds += 1
+                        for k in ("file_path", "notebook_path", "path"):
+                            if isinstance(inp.get(k), str):
+                                files.add(inp[k])
+            last_asst_ends_thinking = ends_thinking
+        # any other type → bookkeeping, just counted in line_types
+
+    nbytes = sum(len(l) + 1 for l in raw)
+    out = []
+    out.append(f"session : {session_id or '?'}")
+    out.append(f"file    : {path}")
+    out.append(f"size    : {nbytes:,} bytes  (~{nbytes // 4:,} tokens, rough)  ·  {len(raw):,} lines")
+    out.append("")
+    out.append(f"turns   : {n_user} user  ·  {n_asst} assistant")
+    out.append(f"thinking: {n_think} blocks" + (f"  ({n_think_empty} empty-text)" if n_think_empty else ""))
+    if tools:
+        out.append("tools   : " + ", ".join(f"{n}× {name}" for name, n in tools.most_common()))
+        out.append(f"          ({sum(tools.values())} tool calls total)")
+    else:
+        out.append("tools   : (none)")
+    if files:
+        out.append(f"files   : {len(files)} touched")
+        shown = sorted(files) if show_all_files else sorted(files)[:8]
+        for f in shown:
+            out.append(f"          {f}")
+        if not show_all_files and len(files) > len(shown):
+            out.append(f"          … and {len(files) - len(shown)} more (use --files for all)")
+    health = "⚠ WEDGED — last assistant turn ends in a thinking block (the 400 'thinking blocks' wedge)" \
+        if last_asst_ends_thinking else "✓ clean (does not end on an orphaned thinking turn)"
+    out.append("")
+    out.append(f"health  : {health}")
+    # a compact line-type census (the structural tour)
+    out.append("lines   : " + ", ".join(f"{n} {t}" for t, n in line_types.most_common()))
+    print("\n".join(out))
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write(__doc__)
+        sys.exit(2)
+    if sys.argv[1] == "find":
+        find(sys.argv[2] if len(sys.argv) > 2 else os.getcwd())
+    else:
+        args = [a for a in sys.argv[1:] if a != "--files"]
+        summarize(args[0], show_all_files=("--files" in sys.argv))
+
+
+if __name__ == "__main__":
+    main()

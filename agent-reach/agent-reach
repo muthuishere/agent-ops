@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""agent-reach — the blast radius of a coding agent: which secrets could it
+read (and therefore exfiltrate) the moment it's compromised?
+
+A coding agent with shell/file access can read anything your shell can. So the
+real question before you point one at a repo — especially with
+`--dangerously-skip-permissions` — isn't "will it misbehave?" but "if it's
+hijacked by injected instructions, what's in reach?" agent-reach answers that:
+it lists the secret-bearing files reachable from here, by PATH only — it never
+opens or prints their contents.
+
+  agent-reach                 # audit the current repo tree + well-known home credential stores
+  agent-reach --repo-only     # only the repo tree (skip $HOME)
+  agent-reach <dir>           # audit a specific directory tree
+
+Exit 0 = nothing sensitive in reach, 1 = blast radius is non-empty.
+SAFETY: this tool reports file PATHS and existence only. It never reads secrets.
+"""
+import fnmatch
+import os
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = DIM = RST = ""
+
+# repo-tree patterns (matched on basename) -> human label
+REPO_PATTERNS = [
+    (".env", "env file (secrets/config)"),
+    (".env.*", "env file"),
+    ("*.pem", "private key / cert"),
+    ("*.key", "private key"),
+    ("id_rsa", "SSH private key"),
+    ("id_ed25519", "SSH private key"),
+    ("id_ecdsa", "SSH private key"),
+    (".npmrc", "npm config (may hold an _authToken)"),
+    (".pypirc", "PyPI credentials"),
+    (".netrc", "netrc credentials"),
+    (".git-credentials", "stored git credentials"),
+    ("credentials", "credentials file"),
+    ("*-service-account*.json", "GCP service-account key"),
+    ("*serviceaccount*.json", "GCP service-account key"),
+    ("*.p12", "key store"),
+    ("*.pfx", "key store"),
+    ("secrets.*", "secrets file"),
+    ("*.kdbx", "password database"),
+]
+PRUNE = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
+
+# well-known home credential stores (existence only) -> label
+HOME_STORES = [
+    (".aws/credentials", "AWS access keys"),
+    (".ssh/id_rsa", "SSH private key"),
+    (".ssh/id_ed25519", "SSH private key"),
+    (".config/gh/hosts.yml", "GitHub CLI token"),
+    (".netrc", "netrc credentials"),
+    (".docker/config.json", "Docker registry auth"),
+    (".kube/config", "Kubernetes credentials"),
+    (".npmrc", "npm token"),
+    (".config/gcloud/credentials.db", "gcloud credentials"),
+]
+
+
+def repo_hits(root):
+    hits = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in PRUNE]
+        for fn in filenames:
+            for pat, label in REPO_PATTERNS:
+                if fnmatch.fnmatch(fn, pat):
+                    hits.append((os.path.relpath(os.path.join(dirpath, fn), root), label))
+                    break
+    return sorted(set(hits))
+
+
+def gitignored(root, relpath):
+    """Best-effort: is relpath ignored by git? (knowing it's committed = worse.)"""
+    import subprocess
+    r = subprocess.run(["git", "-C", root, "check-ignore", "-q", relpath],
+                       capture_output=True)
+    return r.returncode == 0  # 0 = ignored
+
+
+def home_hits(home):
+    hits = []
+    for rel, label in HOME_STORES:
+        p = os.path.join(home, rel)
+        if os.path.exists(p):
+            hits.append((rel, label))
+    return hits
+
+
+def main():
+    args = sys.argv[1:]
+    repo_only = "--repo-only" in args
+    paths = [a for a in args if not a.startswith("-")]
+    root = os.path.abspath(paths[0]) if paths else os.getcwd()
+    if not os.path.isdir(root):
+        sys.stderr.write(f"agent-reach: not a directory: {root}\n"); sys.exit(2)
+    in_git = os.path.isdir(os.path.join(root, ".git"))
+
+    rh = repo_hits(root)
+    print(f"agent-reach — blast radius from {DIM}{root}{RST}\n")
+    print(f"  {'IN THE REPO TREE':<22}{DIM}(an agent here can read every one of these){RST}")
+    if rh:
+        for rel, label in rh:
+            tag = ""
+            if in_git and not gitignored(root, rel):
+                tag = f"  {RED}⚠ COMMITTED (not gitignored){RST}"
+            print(f"    {RED}●{RST} {rel}  {DIM}— {label}{RST}{tag}")
+    else:
+        print(f"    {GRN}○ none found{RST}")
+
+    hh = []
+    if not repo_only:
+        # AGENT_REACH_HOME lets tests/demos point at a synthetic home (and avoids
+        # ever surfacing a real machine's credential inventory in logs).
+        hh = home_hits(os.environ.get("AGENT_REACH_HOME") or os.path.expanduser("~"))
+        print(f"\n  {'REACHABLE IN $HOME':<22}{DIM}(same shell access — exfiltratable if hijacked){RST}")
+        if hh:
+            for rel, label in hh:
+                print(f"    {YEL}●{RST} ~/{rel}  {DIM}— {label}{RST}")
+        else:
+            print(f"    {GRN}○ none of the common stores present{RST}")
+
+    total = len(rh) + len(hh)
+    print()
+    if total:
+        committed = sum(1 for rel, _ in rh if in_git and not gitignored(root, rel))
+        print(f"  {RED}blast radius: {total} secret store(s) in reach"
+              + (f", {committed} committed to the repo" if committed else "") + f".{RST}")
+        print(f"  {DIM}before an agent runs here unsupervised: move secrets out of the tree, "
+              f"scope its file access, and frisk untrusted inputs (see agent-frisk).{RST}")
+    else:
+        print(f"  {GRN}blast radius: nothing sensitive in reach.{RST}")
+    sys.exit(1 if total else 0)
+
+
+if __name__ == "__main__":
+    main()

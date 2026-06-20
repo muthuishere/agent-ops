@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""tooldoc — does your agent actually know what your MCP tools do?
+
+An MCP tool is only as usable as its description. The model never sees your code —
+it sees the tool's name, its description, and the JSON schema of its parameters, and
+it has to pick the tool and fill the arguments from that text alone. When a parameter
+has no description, the model guesses. When a tool's description is one word, the model
+guesses which tool to call. Guessing is where agents go wrong.
+
+So tooldoc grades the *documentation* of your tools (not their token cost — that's a
+different audit). It reads tool schemas and measures the debt that makes agents guess:
+
+  • tools with no description, or a one-word description
+  • PARAMETERS with no description — the big one; the model can't infer what 'path' means
+  • free-form string params with no description AND no enum (maximally guess-prone)
+  • the same tool name exposed by two servers (name shadowing)
+
+It reports a per-server grade and a corpus-wide "what % of parameters are undocumented"
+number — run it across the official servers and the answer is uncomfortable.
+
+Usage:
+  tooldoc                                  # read ./.mcp.json, connect to each server, audit
+  tooldoc --server "npx -y @scope/srv"     # one ad-hoc server (stdio)
+  tooldoc --tools tools.json [--tools …]   # offline: audit a captured tools/list array
+  tooldoc [--top N] [--min-grade A..F] [--json]
+
+A grade is heuristic, weighted on parameter-description coverage (what most agents
+actually trip on). Exit 0 normally; 1 if --min-grade isn't met, or on a fatal error.
+"""
+import json
+import os
+import shlex
+import subprocess
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+THIN_DESC = 12   # a description shorter than this (chars) is "thin"
+
+
+def grade(pct_param_doc, pct_tool_doc, thin_frac):
+    """A..F from how documented the tools are (param coverage dominates)."""
+    score = 0.7 * pct_param_doc + 0.25 * pct_tool_doc + 0.05 * (1 - thin_frac) * 100
+    for cut, g in ((90, "A"), (75, "B"), (60, "C"), (40, "D"), (20, "E")):
+        if score >= cut:
+            return g
+    return "F"
+
+
+GRADE_COL = {"A": GRN, "B": GRN, "C": YEL, "D": YEL, "E": RED, "F": RED}
+
+
+def audit_tools(tools):
+    """Pure: a list of tool dicts -> measures."""
+    n_tools = len(tools)
+    nodesc_tools, thin_tools = [], []
+    total_params, undoc_params, guess_params = 0, 0, []
+    worst = []  # (tool, undoc_count, total_count)
+    for t in tools:
+        if not isinstance(t, dict):
+            continue
+        name = t.get("name", "?")
+        desc = (t.get("description") or "").strip()
+        if not desc:
+            nodesc_tools.append(name)
+        elif len(desc) < THIN_DESC:
+            thin_tools.append(name)
+        schema = t.get("inputSchema") or t.get("input_schema") or {}
+        props = schema.get("properties") or {}
+        t_total, t_undoc = 0, 0
+        for pn, pv in props.items():
+            if not isinstance(pv, dict):
+                continue
+            total_params += 1; t_total += 1
+            pdesc = (pv.get("description") or "").strip()
+            if not pdesc:
+                undoc_params += 1; t_undoc += 1
+                # free-form string with no desc AND no enum/format = maximally guess-prone
+                if pv.get("type") == "string" and not pv.get("enum") and not pv.get("format"):
+                    guess_params.append((name, pn))
+        if t_undoc:
+            worst.append({"tool": name, "undoc": t_undoc, "total": t_total})
+    worst.sort(key=lambda w: -w["undoc"])
+    pct_param_doc = 100.0 * (total_params - undoc_params) / total_params if total_params else 100.0
+    pct_tool_doc = 100.0 * (n_tools - len(nodesc_tools)) / n_tools if n_tools else 100.0
+    thin_frac = len(thin_tools) / n_tools if n_tools else 0.0
+    return {
+        "tools": n_tools, "params": total_params, "undoc_params": undoc_params,
+        "pct_params_undocumented": round(100 - pct_param_doc, 1),
+        "nodesc_tools": nodesc_tools, "thin_tools": thin_tools,
+        "guess_params": guess_params, "worst": worst,
+        "grade": grade(pct_param_doc, pct_tool_doc, thin_frac),
+        "tool_names": [t.get("name") for t in tools if isinstance(t, dict)],
+    }
+
+
+# --- live stdio client (same handshake mcp-budget uses) ----------------------
+def list_tools_via_stdio(cmd):
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    except FileNotFoundError:
+        return None, f"command not found: {cmd[0]}"
+
+    def send(o): p.stdin.write(json.dumps(o) + "\n"); p.stdin.flush()
+
+    def read_id(want, limit=400):
+        for _ in range(limit):
+            line = p.stdout.readline()
+            if not line:
+                return None
+            try:
+                m = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if m.get("id") == want:
+                return m
+        return None
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2024-11-05", "capabilities": {},
+            "clientInfo": {"name": "tooldoc", "version": "0.1"}}})
+        if read_id(1) is None:
+            return None, "no initialize response"
+        send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        r = read_id(2)
+        if r is None:
+            return None, "no tools/list response"
+        return r.get("result", {}).get("tools", []) or [], None
+    finally:
+        try:
+            p.terminate(); p.wait(timeout=3)
+        except Exception:
+            p.kill()
+
+
+def load_tools(doc):
+    if isinstance(doc, list):
+        return doc
+    if isinstance(doc, dict) and isinstance(doc.get("tools"), list):
+        return doc["tools"]
+    if isinstance(doc, dict) and isinstance(doc.get("result"), dict):
+        return doc["result"].get("tools", []) or []
+    raise ValueError("expected a tools array or {\"tools\": [...]}")
+
+
+def gather(a):
+    out = []  # (label, tools|None, err|None)
+    for f in a["tools"]:
+        try:
+            doc = json.loads(open(f, encoding="utf-8", errors="replace").read())
+            out.append((os.path.basename(f).replace("fx-", "").replace("fixture-", "").replace(".json", ""),
+                        load_tools(doc), None))
+        except json.JSONDecodeError as e:
+            out.append((os.path.basename(f), None, f"invalid JSON: {e.msg}"))
+        except ValueError as e:
+            out.append((os.path.basename(f), None, f"invalid input: {e}"))
+    for cmd in a["server"]:
+        tools, err = list_tools_via_stdio(shlex.split(cmd))
+        out.append((shlex.split(cmd)[0] + " …", tools, err))
+    if not a["tools"] and not a["server"] and os.path.isfile(".mcp.json"):
+        try:
+            doc = json.loads(open(".mcp.json", encoding="utf-8", errors="replace").read())
+            srv = doc.get("mcpServers") or doc.get("servers") or {}
+            for name, cfg in srv.items():
+                if not isinstance(cfg, dict) or cfg.get("url"):
+                    out.append((name, None, "remote/invalid — connect manually")); continue
+                cmd = [cfg.get("command", "")] + [str(x) for x in (cfg.get("args") or [])]
+                tools, err = list_tools_via_stdio(cmd) if cmd[0] else (None, "no command")
+                out.append((name, tools, err))
+        except json.JSONDecodeError as e:
+            out.append((".mcp.json", None, f"invalid JSON: {e.msg}"))
+    return out
+
+
+def main():
+    a = {"tools": [], "server": [], "top": 5, "json": False, "min_grade": None}
+    argv = sys.argv[1:]; i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--tools" and i + 1 < len(argv): a["tools"].append(argv[i+1]); i += 2
+        elif x == "--server" and i + 1 < len(argv): a["server"].append(argv[i+1]); i += 2
+        elif x == "--top" and i + 1 < len(argv): a["top"] = int(argv[i+1]); i += 2
+        elif x == "--min-grade" and i + 1 < len(argv): a["min_grade"] = argv[i+1].upper(); i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        else: i += 1
+
+    gathered = gather(a)
+    if not gathered:
+        print("tooldoc: no .mcp.json here and no --tools/--server given — nothing to audit.")
+        sys.exit(0)
+
+    servers, fatal = [], False
+    for label, tools, err in gathered:
+        if tools is None:
+            servers.append({"server": label, "error": err})
+            if err and (err.startswith("invalid JSON") or err.startswith("invalid input")):
+                fatal = True
+            continue
+        m = audit_tools(tools); m["server"] = label
+        servers.append(m)
+
+    measured = [s for s in servers if "error" not in s]
+    # name collisions across servers
+    seen = {}
+    for s in measured:
+        for nm in s.get("tool_names", []):
+            seen.setdefault(nm, []).append(s["server"])
+    collisions = {nm: srvs for nm, srvs in seen.items() if len(srvs) > 1}
+
+    tot_p = sum(s["params"] for s in measured)
+    tot_u = sum(s["undoc_params"] for s in measured)
+    corpus_pct = round(100.0 * tot_u / tot_p, 1) if tot_p else 0.0
+    worst_grade = max((s["grade"] for s in measured), default="A")  # 'F' > 'A' lexically
+
+    if a["json"]:
+        print(json.dumps({
+            "servers": servers, "corpus_params": tot_p, "corpus_undocumented_params": tot_u,
+            "pct_params_undocumented": corpus_pct, "undocumented_params": tot_u,
+            "name_collisions": collisions, "worst_grade": worst_grade,
+        }, indent=2))
+        sys.exit(1 if (fatal or _gate_fail(measured, a["min_grade"])) else 0)
+
+    print(f"tooldoc — documentation audit of {len(measured)} MCP server(s)\n")
+    for s in sorted(measured, key=lambda s: s["pct_params_undocumented"], reverse=True):
+        g = s["grade"]; gc = GRADE_COL[g]
+        print(f"  {gc}[{g}]{RST}  {s['server']:<20} {DIM}{s['tools']} tools · {s['params']} params{RST}  "
+              f"{gc}{s['pct_params_undocumented']:.0f}% of params undocumented{RST}")
+        if s["nodesc_tools"]:
+            print(f"        {RED}● {len(s['nodesc_tools'])} tool(s) with NO description{RST}: {', '.join(s['nodesc_tools'][:6])}")
+        if s["thin_tools"]:
+            print(f"        {YEL}● {len(s['thin_tools'])} thin (one-word) description(s){RST}: {', '.join(s['thin_tools'][:6])}")
+        for w in s["worst"][:a["top"]]:
+            print(f"        {DIM}{w['undoc']}/{w['total']} params undocumented in {w['tool']}{RST}")
+        if s["guess_params"]:
+            gp = s["guess_params"]
+            print(f"        {YEL}● {len(gp)} free-form string param(s) with no description — the model must guess{RST}: "
+                  f"{', '.join(f'{t}.{p}' for t, p in gp[:5])}")
+    for s in servers:
+        if "error" in s:
+            print(f"  {DIM}—  {s['server']}: {s['error']}{RST}")
+    if collisions:
+        print(f"\n  {YEL}● name collisions (shadowing){RST}: " +
+              "; ".join(f"{nm} in {', '.join(srvs)}" for nm, srvs in list(collisions.items())[:5]))
+
+    print()
+    col = RED if corpus_pct >= 50 else (YEL if corpus_pct >= 25 else CYN)
+    print(f"  {col}● {corpus_pct:.0f}% of all {tot_p} parameters across these servers have no description.{RST}")
+    print(f"         {DIM}The model fills those arguments by guessing from the name alone. Document the")
+    print(f"         parameters (and give free-form strings an example or enum) before adding more tools.{RST}\n")
+
+    if a["min_grade"] and _gate_fail(measured, a["min_grade"]):
+        print(f"  {RED}✗ below --min-grade {a['min_grade']}{RST} (worst server: {worst_grade}).\n")
+    sys.exit(1 if (fatal or _gate_fail(measured, a["min_grade"])) else 0)
+
+
+def _gate_fail(measured, min_grade):
+    if not min_grade:
+        return False
+    order = "ABCDEF"
+    thresh = order.index(min_grade) if min_grade in order else 0
+    return any(order.index(s["grade"]) > thresh for s in measured)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""mcp-budget — measure the context-window tax of your MCP servers.
+
+Every MCP server you wire up injects its tools' definitions — name + description +
+JSON input schema — straight into the model's context on every turn, before you type
+a single prompt. That's a real, compounding cost: Anthropic's own example stack hit
+~55K tokens of tool definitions before the conversation started, and a Claude Code
+user measured MCP tools eating 49% of a 200K window. The same text is also the
+prompt-injection surface — whoever writes a tool description writes instructions the
+model can't tell apart from yours.
+
+mcp-budget connects to your MCP servers (JSON-RPC over stdio: initialize -> tools/list),
+serializes each tool exactly as a client sends it to the model, and counts the tokens.
+Per-tool, per-server, and a grand total framed as "spent before your first prompt."
+
+Why measure the serialized schema instead of reading Claude Code's /context? Because
+/context over-reports MCP cost (it counts each tool against the shared tool-use system
+prompt and sums, inflating ~3x). The honest number is the size of the definitions you
+actually ship — which is what this counts.
+
+Usage:
+  mcp-budget [--window N] [--budget N] [--json]      # read ./.mcp.json, connect, measure
+  mcp-budget --tools tools.json [--tools more.json]  # offline: measure a captured tools/list
+  mcp-budget --server "npx -y @scope/server arg"     # measure one ad-hoc server
+
+  --window N   context window for the % readout (default 200000)
+  --budget N   exit 1 if total estimated tokens exceed N (a CI gate)
+  --json       machine-readable output
+
+Token counts are an ESTIMATE (~4 chars/token; the exact count depends on the model's
+tokenizer, which isn't public for Claude). Treat them as a budgeting signal, not a
+billing figure. Exit 0 normally; 1 if --budget is exceeded or a fatal error occurs.
+"""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+
+CHARS_PER_TOKEN = 4  # standard rough heuristic; labeled as an estimate everywhere
+
+
+def serialize_tool(t):
+    """The bytes a client actually sends to the model for one tool: name + description
+    + input schema. We count exactly this — not Claude Code's inflated /context sum."""
+    return json.dumps({
+        "name": t.get("name", ""),
+        "description": t.get("description", "") or "",
+        "input_schema": t.get("inputSchema", t.get("input_schema", {})) or {},
+    }, ensure_ascii=False)
+
+
+def est_tokens(s):
+    return (len(s) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+
+
+def measure_tools(tools):
+    """Pure: list of tool dicts -> per-tool measures + totals (sorted heaviest first)."""
+    rows = []
+    for t in tools:
+        if not isinstance(t, dict):
+            continue
+        s = serialize_tool(t)
+        rows.append({"name": t.get("name", "?"), "chars": len(s), "est_tokens": est_tokens(s)})
+    rows.sort(key=lambda r: -r["est_tokens"])
+    return {
+        "tools": len(rows),
+        "est_tokens": sum(r["est_tokens"] for r in rows),
+        "rows": rows,
+    }
+
+
+def load_tools_blob(doc):
+    """Accept either a bare [...] tools array or a {"tools":[...]} (raw tools/list result)."""
+    if isinstance(doc, list):
+        return doc
+    if isinstance(doc, dict) and isinstance(doc.get("tools"), list):
+        return doc["tools"]
+    if isinstance(doc, dict) and isinstance(doc.get("result"), dict):
+        return doc["result"].get("tools", []) or []
+    raise ValueError("expected a tools array or a {\"tools\": [...]} object")
+
+
+# --- live MCP stdio client ---------------------------------------------------
+def list_tools_via_stdio(cmd, timeout=25):
+    """Spawn an MCP server, do initialize -> tools/list over stdio, return its tools."""
+    try:
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    except FileNotFoundError:
+        return None, f"command not found: {cmd[0]}"
+
+    def send(o):
+        p.stdin.write(json.dumps(o) + "\n"); p.stdin.flush()
+
+    def read_id(want, limit=400):
+        for _ in range(limit):
+            line = p.stdout.readline()
+            if not line:
+                return None
+            try:
+                m = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if m.get("id") == want:
+                return m
+        return None
+
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2024-11-05", "capabilities": {},
+            "clientInfo": {"name": "mcp-budget", "version": "0.1"}}})
+        if read_id(1) is None:
+            return None, "no initialize response"
+        send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        resp = read_id(2)
+        if resp is None:
+            return None, "no tools/list response"
+        return resp.get("result", {}).get("tools", []) or [], None
+    finally:
+        try:
+            p.terminate(); p.wait(timeout=3)
+        except Exception:
+            p.kill()
+
+
+def servers_from_mcp_json(path):
+    doc = json.loads(open(path, encoding="utf-8", errors="replace").read())
+    for k in ("mcpServers", "servers"):
+        if isinstance(doc.get(k), dict):
+            return doc[k]
+    return {}
+
+
+def gather(args):
+    """Return list of (label, tools-or-None, error-or-None)."""
+    out = []
+    # offline: --tools FILE (repeatable)
+    for f in args["tools"]:
+        try:
+            doc = json.loads(open(f, encoding="utf-8", errors="replace").read())
+            out.append((os.path.basename(f).replace("fixture-", "").replace(".json", ""),
+                        load_tools_blob(doc), None))
+        except json.JSONDecodeError as e:
+            out.append((os.path.basename(f), None, f"invalid JSON: {e.msg} at line {e.lineno}"))
+        except (ValueError, OSError) as e:
+            out.append((os.path.basename(f), None, f"invalid input: {e}"))
+    # ad-hoc: --server "cmd ..."
+    for cmd in args["server"]:
+        tools, err = list_tools_via_stdio(shlex.split(cmd))
+        out.append((shlex.split(cmd)[0] + " …", tools, err))
+    # default: ./.mcp.json
+    if not args["tools"] and not args["server"]:
+        mj = ".mcp.json"
+        if os.path.isfile(mj):
+            try:
+                for name, cfg in servers_from_mcp_json(mj).items():
+                    if not isinstance(cfg, dict):
+                        continue
+                    if cfg.get("url") or cfg.get("type") in ("sse", "http", "streamable-http"):
+                        out.append((name, None, "remote server — can't measure over stdio (connect it to count)"))
+                        continue
+                    cmd = [cfg.get("command", "")] + [str(a) for a in (cfg.get("args") or [])]
+                    if not cmd[0]:
+                        out.append((name, None, "no command")); continue
+                    tools, err = list_tools_via_stdio(cmd)
+                    out.append((name, tools, err))
+            except json.JSONDecodeError as e:
+                out.append((".mcp.json", None, f"invalid JSON: {e.msg}"))
+    return out
+
+
+def main():
+    a = {"tools": [], "server": [], "window": 200000, "budget": None, "json": False}
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        x = argv[i]
+        if x == "--tools" and i + 1 < len(argv): a["tools"].append(argv[i+1]); i += 2
+        elif x == "--server" and i + 1 < len(argv): a["server"].append(argv[i+1]); i += 2
+        elif x == "--window" and i + 1 < len(argv): a["window"] = int(argv[i+1]); i += 2
+        elif x == "--budget" and i + 1 < len(argv): a["budget"] = int(argv[i+1]); i += 2
+        elif x == "--json": a["json"] = True; i += 1
+        else: i += 1
+
+    gathered = gather(a)
+    if not gathered:
+        print("mcp-budget: no .mcp.json here and no --tools/--server given — nothing to measure.")
+        sys.exit(0)
+
+    servers, fatal = [], False
+    for label, tools, err in gathered:
+        if err is not None and tools is None:
+            servers.append({"server": label, "error": err});
+            if err.startswith("invalid JSON") or err.startswith("invalid input"):
+                fatal = True
+            continue
+        m = measure_tools(tools or [])
+        m["server"] = label
+        servers.append(m)
+
+    measured = [s for s in servers if "error" not in s]
+    total = sum(s["est_tokens"] for s in measured)
+    total_tools = sum(s["tools"] for s in measured)
+    pct = 100.0 * total / a["window"] if a["window"] else 0.0
+    over = a["budget"] is not None and total > a["budget"]
+
+    if a["json"]:
+        print(json.dumps({
+            "window": a["window"], "total_est_tokens": total, "total_tools": total_tools,
+            "pct_of_window": round(pct, 2), "budget": a["budget"], "over_budget": over,
+            "servers": servers, "note": "est ~4 chars/token; measures serialized {name,description,input_schema}",
+        }, indent=2))
+        sys.exit(1 if (over or fatal) else 0)
+
+    print(f"mcp-budget — context tax of {len(measured)} MCP server(s)  {DIM}(est. ~4 chars/token){RST}\n")
+    for s in sorted(measured, key=lambda s: -s["est_tokens"]):
+        spct = 100.0 * s["est_tokens"] / a["window"] if a["window"] else 0
+        heavy = s["rows"][0] if s["rows"] else None
+        col = RED if s["est_tokens"] >= 10000 else (YEL if s["est_tokens"] >= 3000 else GRN)
+        print(f"  {col}≈{s['est_tokens']:>6,} tok{RST}  {DIM}({spct:4.1f}% of {a['window']//1000}k){RST}  "
+              f"{s['server']}  {DIM}— {s['tools']} tool(s){RST}")
+        if heavy:
+            print(f"           {DIM}largest tool: {heavy['name']} ≈ {heavy['est_tokens']:,} tok{RST}")
+    for s in servers:
+        if "error" in s:
+            print(f"  {DIM}—  {s['server']}: {s['error']}{RST}")
+
+    print()
+    bcol = RED if pct >= 10 else (YEL if pct >= 5 else CYN)
+    print(f"  {bcol}● ≈{total:,} tokens{RST} across {total_tools} tool(s) — "
+          f"{bcol}{pct:.1f}% of a {a['window']//1000}k window spent before your first prompt.{RST}")
+    print(f"         {DIM}Every turn re-ships these definitions, and the same text is un-authored")
+    print(f"         instructions in the model's context — the prompt-injection surface. Trim servers")
+    print(f"         you're not using; Anthropic flags >10k tokens / 10+ tools as the point to act.{RST}")
+    if a["budget"] is not None:
+        if over:
+            print(f"\n  {RED}✗ over budget{RST}: ≈{total:,} > {a['budget']:,} tokens.")
+        else:
+            print(f"\n  {GRN}✓ within budget{RST}: ≈{total:,} ≤ {a['budget']:,} tokens.")
+    print()
+    sys.exit(1 if (over or fatal) else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""review-brief — give a reviewer the agent's implementation journey, not just the diff.
+
+96% of developers don't fully trust AI-generated code, but only ~half verify it —
+because reviewing an agent's PR means reconstructing intent from a finished diff
+with no record of how it got there. For a Claude Code agent, that record exists:
+the session transcript. review-brief turns it into a short brief to read
+alongside the diff — what the agent was asked, what it ran, which files it read
+before editing (informed vs blind), and whether it verified its own work.
+
+Usage:
+  review-brief find [project_dir]    # newest transcript for a project (default: cwd)
+  review-brief <transcript.jsonl>    # print the review brief (markdown)
+"""
+import json
+import os
+import sys
+
+TEST_HINTS = ("test", "pytest", "jest", "vitest", "go test", "cargo test", "rspec",
+              "lint", "tsc", "mypy", "ruff", "build", "make ")
+
+
+def find(project):
+    slug = os.path.abspath(project).replace("/", "-")
+    base = os.path.expanduser(f"~/.claude/projects/{slug}")
+    if not os.path.isdir(base):
+        sys.stderr.write(f"review-brief: no transcript dir for {project}\n"); sys.exit(3)
+    js = [os.path.join(base, f) for f in os.listdir(base) if f.endswith(".jsonl")]
+    if not js:
+        sys.stderr.write(f"review-brief: no .jsonl in {base}\n"); sys.exit(3)
+    print(max(js, key=os.path.getmtime))
+
+
+def first_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for b in content:
+            if isinstance(b, dict) and b.get("type") == "text":
+                return b.get("text", "")
+    return ""
+
+
+def looks_like_test(cmd):
+    c = cmd.lower()
+    return any(h in c for h in TEST_HINTS)
+
+
+def brief(path):
+    if not os.path.isfile(path):
+        sys.stderr.write(f"review-brief: no such transcript: {path}\n"); sys.exit(2)
+    intent = None
+    reads = []                 # file_paths read, in order
+    changed = []               # (file_path, kind) where kind = "edit" | "write"
+    bash = []                  # (idx, command)
+    edit_idxs = []             # event index of each Edit/Write (last-edit marker)
+    test_idxs = []             # event index of each test-like Bash run
+    idx = 0
+    for line in open(path):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        t = o.get("type")
+        msg = o.get("message") if isinstance(o.get("message"), dict) else None
+        c = msg.get("content") if msg else None
+        if t == "user" and intent is None:
+            txt = first_text(c).strip()
+            # skip tool_result-only user lines and command noise
+            if txt and not txt.startswith("<") and "tool_result" not in str(c)[:40]:
+                intent = txt
+        if t == "assistant" and isinstance(c, list):
+            for b in c:
+                if not isinstance(b, dict) or b.get("type") != "tool_use":
+                    continue
+                idx += 1
+                name = b.get("name", "")
+                inp = b.get("input") or {}
+                fp = inp.get("file_path") or inp.get("notebook_path")
+                if name == "Read" and fp:
+                    reads.append(fp)
+                elif name in ("Edit", "NotebookEdit") and fp:
+                    changed.append((fp, "edit")); edit_idxs.append(idx)
+                elif name == "Write" and fp:
+                    changed.append((fp, "write")); edit_idxs.append(idx)
+                elif name == "Bash":
+                    cmd = (inp.get("command") or "").strip()
+                    if cmd:
+                        bash.append((idx, cmd))
+                        if looks_like_test(cmd):
+                            test_idxs.append(idx)
+
+    # de-dup files (keep first kind seen), classify
+    read_set = set(reads)
+    seen = {}
+    for f, kind in changed:
+        seen.setdefault(f, kind)
+    files = []  # (file, label, is_risk)
+    for f, kind in seen.items():
+        if kind == "write":
+            files.append((f, "created / rewritten", False))
+        elif f in read_set:
+            files.append((f, "✓ read before editing", False))
+        else:
+            files.append((f, "⚠ edited without reading first", True))
+    # verification: any test-like command after the last edit?
+    last_edit = max(edit_idxs) if edit_idxs else 0
+    verified_after = any(i > last_edit for i in test_idxs)
+
+    out = []
+    out.append("# Review brief\n")
+    out.append(f"**What it was asked:** {(intent or '(not found)')[:300]}\n")
+    if files:
+        out.append(f"**Files changed ({len(files)}):**")
+        for f, label, _ in files:
+            out.append(f"  - `{f}`  — {label}")
+        out.append("")
+    tests = [c for _, c in bash if looks_like_test(c)]
+    out.append(f"**Commands run:** {len(bash)} total"
+               + (f", incl. {len(tests)} test/build/lint" if tests else ""))
+    for c in tests[:6]:
+        out.append(f"  - `{c[:90]}`")
+    out.append("")
+    if edit_idxs:
+        verdict = ("✅ ran tests AFTER its last edit — self-verified"
+                   if verified_after else
+                   "❌ no test/build run after the last edit — verify it yourself")
+        out.append(f"**Verification:** {verdict}")
+    else:
+        out.append("**Verification:** no file edits in this session.")
+    blind = sum(1 for _, _, risk in files if risk)
+    if blind or (edit_idxs and not verified_after):
+        out.append("\n> Reviewer focus: "
+                   + ", ".join(filter(None, [
+                       f"{blind} existing file(s) edited without reading first" if blind else "",
+                       "unverified after last edit" if (edit_idxs and not verified_after) else ""])))
+    print("\n".join(out))
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.stderr.write(__doc__); sys.exit(2)
+    if sys.argv[1] == "find":
+        find(sys.argv[2] if len(sys.argv) > 2 else os.getcwd())
+    else:
+        brief(sys.argv[1])
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""agent-guard — a Claude Code PreToolUse hook that blocks the handful of
+commands that irreversibly destroy work, BEFORE the agent runs them.
+
+This is the prevention half of the story: agent-rescue gets work back after an
+agent loses it; agent-guard stops the agent losing it in the first place. It
+targets the exact failure class behind anthropics/claude-code#34327 (an agent
+ran `git reset --hard` and destroyed 12 unpushed commits) and #46444 (untracked
+work deleted): `git reset --hard`, `git clean -f`, `git push --force`,
+`git checkout/restore`-that-discards, `git branch -D`, `git stash drop/clear`,
+`git worktree remove --force`, and `rm -rf`.
+
+Contract (Claude Code PreToolUse hook):
+  stdin  : {"tool_name":"Bash","tool_input":{"command":"..."}, ...}
+  block  : print {"hookSpecificOutput":{"hookEventName":"PreToolUse",
+           "permissionDecision":"deny","permissionDecisionReason":"..."}}; exit 0
+  allow  : exit 0 with no output (normal permission flow continues)
+
+Install (.claude/settings.json):
+  {"hooks":{"PreToolUse":[{"matcher":"Bash",
+    "hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/agent-guard"}]}]}}
+
+Escape hatch: set AGENT_GUARD_OFF=1 to disable (e.g. for a deliberate cleanup).
+The guard FAILS SAFE — it only ever denies; a parse error or unknown shape allows.
+"""
+import json
+import os
+import re
+import sys
+
+# (compiled pattern, short reason, safer alternative). Order matters: first hit wins.
+RULES = [
+    (r"\bgit\s+reset\s+(--hard|--mixed\s+--hard|.*\s--hard)\b",
+     "`git reset --hard` discards every uncommitted change and can strand commits.",
+     "commit/stash first, or `git reset --soft` to keep your changes staged."),
+    (r"\bgit\s+clean\s+-[a-z]*f",
+     "`git clean -f` permanently deletes untracked files (never-staged work is unrecoverable).",
+     "preview with `git clean -n` first, then delete only what you mean to."),
+    (r"\bgit\s+push\b.*(--force(?!-with-lease)|\s-f\b)",
+     "`git push --force` can clobber commits on the remote that you can't get back.",
+     "use `git push --force-with-lease`, which refuses if the remote moved."),
+    (r"\bgit\s+branch\s+-(D|-delete\s+--force|d\s*-f)\b",
+     "`git branch -D` force-deletes a branch, orphaning any commits only it pointed to.",
+     "merge or note the SHA first, or use `-d` (safe delete, refuses if unmerged)."),
+    (r"\bgit\s+(checkout|restore)\b(?!.*--staged).*(\s\.|\s--\s|\*)",
+     "discarding the working tree (`git checkout/restore .`) throws away uncommitted edits.",
+     "stash them instead: `git stash` keeps the changes and is reversible."),
+    (r"\bgit\s+stash\s+(drop|clear)\b",
+     "`git stash drop/clear` deletes stashed work with no undo.",
+     "`git stash list` + `git stash show -p` to confirm before dropping a specific entry."),
+    (r"\bgit\s+worktree\s+remove\b.*(--force|\s-f\b)",
+     "`git worktree remove --force` deletes a worktree even with uncommitted/committed work in it.",
+     "commit in the worktree first, or remove it without --force so git refuses if it's dirty."),
+    (r"\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r|\brm\s+-r\s+-f|\brm\s+-f\s+-r",
+     "`rm -rf` recursively force-deletes with no trash and no undo.",
+     "delete narrowly, or move to a temp dir first so it's recoverable."),
+]
+COMPILED = [(re.compile(p), why, alt) for p, why, alt in RULES]
+
+
+def deny(reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+    sys.exit(0)
+
+
+def main():
+    if os.environ.get("AGENT_GUARD_OFF") == "1":
+        sys.exit(0)
+    try:
+        data = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        sys.exit(0)  # fail safe: don't block on a shape we don't understand
+    if data.get("tool_name") != "Bash":
+        sys.exit(0)
+    cmd = (data.get("tool_input") or {}).get("command", "")
+    if not isinstance(cmd, str) or not cmd.strip():
+        sys.exit(0)
+    for rx, why, alt in COMPILED:
+        if rx.search(cmd):
+            deny(f"agent-guard blocked a destructive command. {why} "
+                 f"Safer: {alt} (set AGENT_GUARD_OFF=1 to override deliberately.)")
+    sys.exit(0)  # nothing matched — allow normal permission flow
+
+
+if __name__ == "__main__":
+    main()

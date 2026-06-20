@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""skill-lint — will your Claude Code skill actually get used?
+
+A skill is loaded on demand: the model reads only its name + description, and
+decides from that whether to pull in the full SKILL.md. So a vague or too-short
+description means the skill silently never triggers — dead weight you wrote and
+forgot. And once triggered, the whole body loads into context, so a bloated
+SKILL.md taxes every run that uses it. skill-lint checks both, plus the basics.
+
+  skill-lint [SKILL.md | skill-dir ...]   # default: ./SKILL.md
+
+Exit 0 = healthy, 1 = at least one finding.
+"""
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; GRN = "\033[32m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = GRN = CYN = DIM = RST = ""
+SEV = {"HIGH": RED, "WARN": YEL, "INFO": CYN}
+TRIGGER_CUES = ("trigger", "use when", "use this", "when the user", "when you",
+                "invoke when", "whenever the", "if the user")
+
+
+def parse_frontmatter(text):
+    """Return (meta dict, body) from a --- delimited YAML-ish header (no yaml dep)."""
+    if not text.startswith("---"):
+        return None, text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None, text
+    block = text[3:end].strip("\n").splitlines()
+    body = text[end + 4:]
+    meta, key = {}, None
+    for ln in block:
+        m = re.match(r"^([A-Za-z_][\w-]*):\s?(.*)$", ln)
+        if m:
+            key = m.group(1).lower()
+            meta[key] = m.group(2).strip()
+        elif key and ln.strip():            # continuation of a multiline value
+            meta[key] += " " + ln.strip()
+    for k, v in meta.items():
+        meta[k] = v.strip().strip('"').strip("'").strip()
+    return meta, body
+
+
+def audit(path):
+    findings = []
+    add = lambda s, t, f: findings.append((s, t, f))
+    text = open(path, encoding="utf-8", errors="replace").read()
+    meta, body = parse_frontmatter(text)
+    skill_dir = os.path.dirname(os.path.abspath(path))
+    dirname = os.path.basename(skill_dir)
+
+    if meta is None:
+        add("HIGH", "no YAML frontmatter", "a SKILL.md must start with a --- name/description --- block; without it the skill won't register.")
+        return findings, {"desc_words": 0, "body_toks": len(text) // 4}
+
+    name = meta.get("name", "")
+    desc = meta.get("description", "")
+
+    if not name:
+        add("HIGH", "no `name` in frontmatter", "add `name:` — it's how the skill is referenced.")
+    elif dirname and name != dirname and dirname not in ("9466-skill-lint",):
+        add("INFO", f"`name` ({name}) doesn't match the directory ({dirname})",
+            "by convention the skill's name matches its folder.")
+
+    dw = len(desc.split())
+    if not desc:
+        add("HIGH", "no `description` — the skill can never be chosen",
+            "the model picks skills by description alone; without one it's invisible.")
+    elif dw < 10:
+        add("HIGH", f"description is only {dw} words — too thin to trigger reliably",
+            "say what it does AND when to use it (the exact tasks/keywords that should invoke it).")
+    elif dw < 20:
+        add("WARN", f"description is {dw} words — likely under-specified",
+            "add the trigger conditions: the user phrasings / file patterns that should load this skill.")
+    if desc and not any(c in desc.lower() for c in TRIGGER_CUES):
+        add("INFO", "description states what it does but not WHEN to use it",
+            "add a 'use when…' / 'trigger when…' clause so the model knows to reach for it.")
+
+    body_toks = len(body) // 4
+    if body_toks >= 5000:
+        add("WARN", f"SKILL.md body is ~{body_toks:,} tokens — loads into context whenever the skill fires",
+            "use progressive disclosure: keep SKILL.md a lean overview, push detail into referenced files.")
+
+    # stale references to BUNDLED files: a path (has a slash) in backticks, or a
+    # markdown link. Bare `app.py` / `Anthropic.Tool` in prose are examples/
+    # identifiers, not files the skill ships — don't flag those.
+    refs = set(re.findall(r"`([\w.-]+/[\w./-]+\.\w{1,6})`", body))     # backtick path w/ slash
+    refs |= set(re.findall(r"\]\(([\w./-]+\.\w{1,6})\)", body))        # markdown link
+    missing = [r for r in sorted(refs)
+               if not r.startswith(("http", "/", "#")) and "://" not in r
+               and not os.path.exists(os.path.join(skill_dir, r))]
+    if missing:
+        add("WARN", f"{len(missing)} referenced file(s) not found in the skill",
+            "fix or remove: " + ", ".join(f"`{m}`" for m in missing[:6]))
+
+    return findings, {"desc_words": dw, "body_toks": body_toks}
+
+
+def resolve(arg):
+    if os.path.isdir(arg):
+        p = os.path.join(arg, "SKILL.md")
+        return p if os.path.isfile(p) else None
+    return arg if os.path.isfile(arg) else None
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("-")] or ["SKILL.md"]
+    bad = 0
+    for arg in args:
+        path = resolve(arg)
+        if not path:
+            print(f"skill-lint: no SKILL.md at {arg}"); bad = 1; continue
+        findings, m = audit(path)
+        print(f"skill-lint — {path}  {DIM}(desc {m['desc_words']}w · body ~{m['body_toks']:,} tokens){RST}\n")
+        if not findings:
+            print(f"  {GRN}✓ discoverable and lean — nothing to fix.{RST}\n"); continue
+        bad = 1
+        order = {"HIGH": 0, "WARN": 1, "INFO": 2}
+        for sev, title, fix in sorted(findings, key=lambda f: order[f[0]]):
+            print(f"  {SEV[sev]}● {sev:<5}{RST} {title}")
+            print(f"          {DIM}{fix}{RST}")
+        print()
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()
