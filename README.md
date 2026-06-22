@@ -1,5 +1,7 @@
 # agent-ops
 
+[![ci](https://github.com/muthuishere/agent-ops/actions/workflows/ci.yml/badge.svg)](https://github.com/muthuishere/agent-ops/actions/workflows/ci.yml)
+
 **Small, dependency-light operational tools for AI coding agents.**
 
 A coding agent edits your source, runs your shell, reads whatever files it can reach, and spends money — at machine speed, often unattended. That's a production system, and it needs the same operational layer you'd give anything else with that much reach: recover, prevent, observe, spend, secure, set up, verify.
@@ -87,6 +89,19 @@ bash    agent-ops/preflight/preflight
 | Tool | What it does | The story |
 |------|--------------|-----------|
 | [`storyboard-doctor`](storyboard-doctor/) | pre-render linter for auto-demo storyboard JSON — catch dead-air/duration mismatches before you render | [read →](storyboard-doctor/README.md) |
+
+## Tests
+
+Every tool ships a self-contained suite (`<tool>/test_<tool>.sh`) that builds its own
+fixtures and exits non-zero on any failure. CI runs all of them on every push and PR —
+one green check per tool.
+
+```sh
+scripts/run-tests.sh              # run the whole fleet
+scripts/run-tests.sh agent-frisk  # run one tool's suite
+```
+
+Only `python3` and `bash` are required; a few suites build throwaway git repos.
 
 ---
 
