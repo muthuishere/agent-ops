@@ -9,7 +9,7 @@ ok()  { echo "PASS: $1"; PASS=$((PASS+1)); }
 bad() { echo "FAIL: $1 -- $2"; FAIL=$((FAIL+1)); }
 newrepo() {
   local d; d=$(mktemp -d /tmp/auto-snap.XXXXXX)
-  ( cd "$d"; git init -q; git config user.email t@t.com; git config user.name T
+  ( cd "$d"; git init -q -b main; git config user.email t@t.com; git config user.name T
     echo base > tracked.txt; git add tracked.txt; git commit -q -m base ) >/dev/null
   echo "$d"
 }
