@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 *.tmp
+
+# transient browser-bridge / playwright-cli capture artifacts
+.playwright-cli/
