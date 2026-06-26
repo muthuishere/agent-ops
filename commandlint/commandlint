@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""commandlint — are your Claude Code slash commands safe and actually invokable?
+
+A custom slash command in `.claude/commands/*.md` is a prompt you run by name — and it
+can run shell with `!`…`` and splice your typed `$ARGUMENTS` straight into it. That's the
+sharp one: `!`git log $ARGUMENTS`` turns a slash command into arbitrary command execution.
+The quieter ones: a command that runs bash but doesn't allow the Bash tool never executes;
+args used with no `argument-hint` (nobody knows to pass them); no `description`, so the
+model's SlashCommand tool won't know when to call it.
+
+  commandlint [.claude/commands | file.md ...]   # default: ./.claude/commands
+
+Exit 0 = healthy, 1 = at least one HIGH finding.
+
+Heuristic, not a sandbox: commandlint reads the frontmatter and body and flags risky or
+dead shapes. It never executes the command or its bash.
+"""
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = CYN = DIM = RST = ""
+SEV = {"HIGH": RED, "WARN": YEL, "INFO": CYN}
+
+KNOWN_TOOLS = {
+    "Task", "Bash", "BashOutput", "KillBash", "Glob", "Grep", "Read", "Edit",
+    "Write", "NotebookEdit", "WebFetch", "WebSearch", "TodoWrite", "SlashCommand",
+}
+_TOOLS_LOWER = {t.lower(): t for t in KNOWN_TOOLS}
+
+# `!`cmd`` — bang immediately followed by a backtick-quoted command (CC bash exec)
+BANG_EXEC = re.compile(r"!`([^`]+)`")
+ARG_REF = re.compile(r"\$ARGUMENTS\b|\$\{ARGUMENTS\}|\$[0-9]\b")
+FILE_REF = re.compile(r"(?<!\S)@([^\s`]+)")
+
+
+def parse_frontmatter(text):
+    if not text.startswith("---"):
+        return {}, text          # commands may legitimately have no frontmatter
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}, text
+    block = text[3:end].strip("\n").splitlines()
+    body = text[end + 4:]
+    meta, key = {}, None
+    for ln in block:
+        m = re.match(r"^([A-Za-z_][\w-]*):\s?(.*)$", ln)
+        if m:
+            key = m.group(1).lower()
+            meta[key] = m.group(2).strip()
+        elif key is not None:
+            lm = re.match(r"^\s*-\s+(.*)$", ln)
+            if lm:
+                meta[key] = (meta.get(key, "") + ", " + lm.group(1).strip()).lstrip(", ")
+    return meta, body
+
+
+def tool_name(spec):
+    """'Bash(git add:*)' -> ('Bash', 'git add:*'); 'Read' -> ('Read', None)."""
+    spec = spec.strip()
+    if "(" in spec and spec.endswith(")"):
+        t, _, rest = spec.partition("(")
+        return t.strip(), rest[:-1].strip()
+    return spec, None
+
+
+def lint_file(path, cmd_base, proj_root, stems, add):
+    try:
+        text = open(path).read()
+    except OSError as e:
+        add("HIGH", f"{os.path.basename(path)}: cannot read ({e})", "")
+        return
+    fn = os.path.relpath(path, cmd_base).replace(os.sep, "/")
+    meta, body = parse_frontmatter(text)
+
+    allowed_raw = meta.get("allowed-tools", "")
+    allowed = [tool_name(t)[0] for t in allowed_raw.split(",") if t.strip()] if allowed_raw else []
+    bash_allowed = any(t == "Bash" for t in allowed)
+    has_allowed_block = bool(allowed_raw.strip())
+
+    # 1. bash-exec lines, and the injection footgun
+    bangs = BANG_EXEC.findall(body)
+    inj = [c for c in bangs if ARG_REF.search(c)]
+    if inj:
+        add("HIGH", f"{fn}: $ARGUMENTS spliced into a `!`…`` bash command",
+            "whatever the user types runs in the shell — classic command injection. "
+            f"e.g. !`{inj[0].strip()[:60]}`. Don't interpolate raw args into bash; validate, "
+            "or take the value as a prompt variable instead of a shell argument.")
+    # 2. bash used but not allowed -> it won't run
+    if bangs and has_allowed_block and not bash_allowed:
+        add("WARN", f"{fn}: uses `!`…`` bash but 'allowed-tools' doesn't include Bash",
+            "the bash step is blocked, so the command runs without that output. Add Bash to allowed-tools.")
+
+    # 3. over-broad Bash grant
+    for spec in (t for t in allowed_raw.split(",") if t.strip()):
+        name, arg = tool_name(spec)
+        if name == "Bash" and (arg is None or arg in ("", "*", ":*")):
+            add("WARN", f"{fn}: allowed-tools grants unrestricted Bash",
+                "a slash command with open Bash can run anything. Scope it, e.g. Bash(git status:*).")
+        elif name not in KNOWN_TOOLS and not name.startswith("mcp__"):
+            if name.lower() in _TOOLS_LOWER:
+                add("WARN", f"{fn}: allowed-tools '{name}' is mis-cased — did you mean '{_TOOLS_LOWER[name.lower()]}'?",
+                    "tool names are case-sensitive; a mismatch grants nothing.")
+            else:
+                add("WARN", f"{fn}: allowed-tools '{name}' is not a known tool",
+                    "if it's a typo it grants nothing; MCP tools use the 'mcp__…' name.")
+
+    # 4/5. argument-hint <-> $ARGUMENTS consistency
+    uses_args = bool(ARG_REF.search(body))
+    hint = meta.get("argument-hint", "").strip()
+    if uses_args and not hint:
+        add("WARN", f"{fn}: uses $ARGUMENTS but has no 'argument-hint'",
+            "add an argument-hint so callers (and /help) know what to pass.")
+    elif hint and not uses_args:
+        add("WARN", f"{fn}: has 'argument-hint' but the body never uses $ARGUMENTS/$1",
+            "the hint is misleading — either consume the args or drop the hint.")
+
+    # 6. description (drives the SlashCommand tool / /help)
+    if not meta.get("description", "").strip():
+        add("WARN", f"{fn}: no 'description'",
+            "without one it's thin in /help and the model's SlashCommand tool won't know when to call it.")
+
+    # 7. empty body
+    if not body.strip():
+        add("HIGH", f"{fn}: empty body", "the command has no prompt — it does nothing.")
+
+    # 8. @file references that don't resolve
+    for ref in FILE_REF.findall(body):
+        if ref.startswith(("http://", "https://", "~")) or ref[:1] == "$":
+            continue
+        cand = os.path.join(proj_root, ref)
+        if not os.path.exists(cand) and not os.path.exists(os.path.join(os.path.dirname(path), ref)):
+            add("INFO", f"{fn}: @{ref} doesn't resolve to a file",
+                "the @-reference won't inline anything if the path is wrong (checked relative to the repo root).")
+
+    # 9. duplicate command name within the same directory
+    d = os.path.dirname(path)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    key = (d, stem)
+    if key in stems:
+        add("WARN", f"{fn}: duplicate command name '{stem}' in the same directory",
+            f"collides with {stems[key]} — one shadows the other.")
+    else:
+        stems[key] = fn
+
+
+def gather(target):
+    """Returns (files, cmd_base, proj_root).
+    cmd_base = dir to show paths relative to; proj_root = where @file refs resolve (cwd/project)."""
+    if os.path.isdir(target):
+        cmds = os.path.join(target, ".claude", "commands")
+        cmd_base = cmds if os.path.isdir(cmds) else target
+        out = []
+        for dp, dn, fns in os.walk(cmd_base):
+            for f in sorted(fns):
+                if f.endswith(".md"):
+                    out.append(os.path.join(dp, f))
+        return sorted(out), cmd_base, target
+    return [target], os.path.dirname(target) or ".", os.getcwd()
+
+
+def main():
+    args = sys.argv[1:] or [".claude/commands"]
+    entries = []   # (path, cmd_base, proj_root)
+    for a in args:
+        if not os.path.exists(a):
+            if len(args) == 1:
+                print("commandlint: no .claude/commands directory — no slash commands to lint.")
+                sys.exit(0)
+            sys.stderr.write(f"commandlint: no such path: {a}\n"); continue
+        fs, cmd_base, proj_root = gather(a)
+        for f in fs:
+            if f.endswith(".md"):
+                entries.append((f, cmd_base, proj_root))
+    if not entries:
+        print("commandlint: no slash-command .md files found.")
+        sys.exit(0)
+
+    findings = []
+    add = lambda s, t, d: findings.append((s, t, d))
+    stems = {}
+    for path, cmd_base, proj_root in entries:
+        lint_file(path, cmd_base, proj_root, stems, add)
+
+    print(f"commandlint — {len(entries)} command file(s)\n")
+    if not findings:
+        print("  ✓ slash commands look healthy.")
+        sys.exit(0)
+    order = {"HIGH": 0, "WARN": 1, "INFO": 2}
+    for sev, title, detail in sorted(findings, key=lambda f: order[f[0]]):
+        print(f"  {SEV[sev]}● {sev:<5}{RST} {title}")
+        if detail:
+            print(f"          {DIM}{detail}{RST}")
+    high = sum(1 for s, _, _ in findings if s == "HIGH")
+    print()
+    print(f"  {RED if high else YEL}{len(findings)} finding(s)"
+          + (f", {high} high-severity" if high else "") + f".{RST}")
+    sys.exit(1 if high else 0)
+
+
+if __name__ == "__main__":
+    main()
