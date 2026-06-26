@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""subagentlint — will your Claude Code subagents load, route, and stay in their lane?
+
+skill-lint checks SKILL.md; subagentlint checks the other on-demand surface: the
+subagent definitions in `.claude/agents/*.md`. A subagent is auto-delegated to from
+its `description` alone, so a vague one silently never gets picked. Its `tools:` line
+decides how much it can do — omit it and the subagent inherits *every* tool (Bash,
+Write, the lot). A typo'd tool name is silently dropped, a duplicate `name` collides
+with another agent, and a frontmatter-only file has no instructions at all.
+
+  subagentlint [.claude/agents | file.md ...]   # default: ./.claude/agents
+
+Exit 0 = healthy, 1 = at least one HIGH finding.
+
+Heuristic, not a schema validator: subagentlint reads the frontmatter and body and
+flags the shapes that don't load or don't route. It never runs the subagent.
+"""
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = CYN = DIM = RST = ""
+SEV = {"HIGH": RED, "WARN": YEL, "INFO": CYN}
+
+TRIGGER_CUES = ("trigger", "use when", "use this", "when the user", "when you",
+                "invoke when", "whenever", "if the user", "for tasks", "use proactively",
+                "should be used")
+# Claude Code built-in tool names (case-sensitive). MCP tools are mcp__*.
+KNOWN_TOOLS = {
+    "Task", "Bash", "BashOutput", "KillBash", "Glob", "Grep", "Read", "Edit",
+    "Write", "NotebookEdit", "WebFetch", "WebSearch", "TodoWrite", "SlashCommand",
+}
+_TOOLS_LOWER = {t.lower(): t for t in KNOWN_TOOLS}
+POWERFUL = {"Bash", "Write", "Edit", "NotebookEdit"}
+KNOWN_MODELS = {"sonnet", "opus", "haiku", "inherit"}
+NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def parse_frontmatter(text):
+    """(meta, body) from a --- delimited YAML-ish header. No yaml dep.
+    Supports `key: value`, bracket lists `[a, b]`, and block lists ('  - a')."""
+    if not text.startswith("---"):
+        return None, text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None, text
+    block = text[3:end].strip("\n").splitlines()
+    body = text[end + 4:]
+    meta, key = {}, None
+    for ln in block:
+        m = re.match(r"^([A-Za-z_][\w-]*):\s?(.*)$", ln)
+        if m:
+            key = m.group(1).lower()
+            meta[key] = m.group(2).strip()
+        elif key is not None:
+            lm = re.match(r"^\s*-\s+(.*)$", ln)
+            if lm:
+                prev = meta.get(key, "")
+                meta[key] = (prev + ", " + lm.group(1).strip()).lstrip(", ")
+    return meta, body
+
+
+def tool_tokens(raw):
+    s = raw.strip().strip("[]")
+    return [t.strip().strip("'\"") for t in s.split(",") if t.strip()]
+
+
+def lint_file(path, names_seen, add):
+    try:
+        text = open(path).read()
+    except OSError as e:
+        add("HIGH", f"{os.path.basename(path)}: cannot read ({e})", "")
+        return
+    fn = os.path.basename(path)
+    meta, body = parse_frontmatter(text)
+    if meta is None:
+        add("HIGH", f"{fn}: no valid frontmatter",
+            "a subagent needs a `---` YAML header with at least name + description, or it won't load.")
+        return
+
+    # name
+    name = meta.get("name", "").strip()
+    if not name:
+        add("HIGH", f"{fn}: missing 'name'", "without a name the subagent can't be defined or invoked.")
+    else:
+        if not NAME_RE.match(name):
+            add("WARN", f"{fn}: name '{name}' isn't lowercase-kebab",
+                "use letters/digits/hyphens (e.g. 'code-reviewer'); spaces/underscores/caps are off-convention.")
+        if name in names_seen:
+            add("HIGH", f"{fn}: duplicate name '{name}' (also in {names_seen[name]})",
+                "two subagents with the same name collide — one shadows the other.")
+        else:
+            names_seen[name] = fn
+        stem = os.path.splitext(fn)[0]
+        if NAME_RE.match(name) and stem != name:
+            add("INFO", f"{fn}: name '{name}' differs from filename '{stem}'",
+                "harmless, but matching them keeps the agents dir readable.")
+
+    # description — drives auto-delegation
+    desc = meta.get("description", "").strip()
+    if not desc:
+        add("HIGH", f"{fn}: missing 'description'",
+            "Claude auto-delegates to a subagent from its description alone; without one it never routes.")
+    else:
+        if len(desc) < 30:
+            add("WARN", f"{fn}: description is very short ({len(desc)} chars)",
+                "give concrete cues for when to use it, or auto-delegation will miss it.")
+        elif not any(c in desc.lower() for c in TRIGGER_CUES):
+            add("WARN", f"{fn}: description has no 'use when…' trigger cue",
+                "say *when* to use this agent (e.g. 'Use when reviewing a PR…') so Claude routes to it.")
+
+    # tools — the permission surface
+    if "tools" not in meta:
+        add("WARN", f"{fn}: no 'tools' — inherits ALL tools",
+            "an unscoped subagent gets every tool incl. Bash/Write. List only what it needs.")
+    else:
+        toks = tool_tokens(meta["tools"])
+        if "*" in toks:
+            add("WARN", f"{fn}: tools: '*' grants every tool", "scope it to the tools the agent actually uses.")
+        for t in toks:
+            if t == "*" or t.startswith("mcp__"):
+                continue
+            if t not in KNOWN_TOOLS:
+                if t.lower() in _TOOLS_LOWER:
+                    add("WARN", f"{fn}: tool '{t}' is mis-cased — did you mean '{_TOOLS_LOWER[t.lower()]}'?",
+                        "tool names are case-sensitive; a mismatch is silently NOT granted.")
+                else:
+                    add("WARN", f"{fn}: tool '{t}' is not a known built-in tool",
+                        "if it's a typo the tool is silently dropped; if it's an MCP tool use the 'mcp__…' name.")
+        grant = [t for t in toks if t in POWERFUL]
+        if grant and desc and re.search(r"\b(read-?only|research|review|audit|analyz|inspect|summar)", desc.lower()):
+            add("WARN", f"{fn}: grants {', '.join(grant)} but reads as read-only work",
+                "a research/review agent rarely needs Bash/Write/Edit — drop them to limit blast radius.")
+
+    # model
+    model = meta.get("model", "").strip()
+    if model and model not in KNOWN_MODELS and "claude" not in model.lower():
+        add("WARN", f"{fn}: model '{model}' is unrecognised",
+            f"expected one of {', '.join(sorted(KNOWN_MODELS))} or a specific claude-* id.")
+
+    # body / system prompt
+    if not body.strip():
+        add("WARN", f"{fn}: empty body (no system prompt)",
+            "the subagent has no instructions of its own — add the guidance it should run with.")
+
+
+def collect(target):
+    if os.path.isdir(target):
+        agents = os.path.join(target, ".claude", "agents")
+        base = agents if os.path.isdir(agents) else target
+        return sorted(os.path.join(base, f) for f in os.listdir(base) if f.endswith(".md"))
+    return [target]
+
+
+def main():
+    args = sys.argv[1:] or [".claude/agents"]
+    files = []
+    for a in args:
+        if not os.path.exists(a):
+            sys.stderr.write(f"subagentlint: no such path: {a}\n")
+            if len(args) == 1:
+                print("subagentlint: no .claude/agents directory — no subagents to lint.")
+                sys.exit(0)
+            continue
+        files.extend(collect(a))
+    files = [f for f in files if f.endswith(".md")]
+    if not files:
+        print("subagentlint: no subagent .md files found.")
+        sys.exit(0)
+
+    findings = []
+    add = lambda s, t, d: findings.append((s, t, d))
+    names_seen = {}
+    for f in files:
+        lint_file(f, names_seen, add)
+
+    print(f"subagentlint — {len(files)} subagent file(s)\n")
+    if not findings:
+        print("  ✓ subagents look healthy.")
+        sys.exit(0)
+    order = {"HIGH": 0, "WARN": 1, "INFO": 2}
+    for sev, title, detail in sorted(findings, key=lambda f: order[f[0]]):
+        print(f"  {SEV[sev]}● {sev:<5}{RST} {title}")
+        if detail:
+            print(f"          {DIM}{detail}{RST}")
+    high = sum(1 for s, _, _ in findings if s == "HIGH")
+    print()
+    print(f"  {RED if high else YEL}{len(findings)} finding(s)"
+          + (f", {high} high-severity" if high else "") + f".{RST}")
+    sys.exit(1 if high else 0)
+
+
+if __name__ == "__main__":
+    main()
