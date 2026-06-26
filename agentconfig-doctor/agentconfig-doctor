@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""agentconfig-doctor — one pass over your whole Claude Code `.claude/` config.
+
+The other agent-ops linters each check one surface — permissions, hooks, MCP servers,
+skills, subagents, slash commands, ignore files, the lethal trifecta. agentconfig-doctor
+runs whichever of them are present in your agent-ops checkout against one repo and gives
+you a single verdict, so "is my agent setup sane?" is one command, not nine.
+
+  agentconfig-doctor [repo-dir]    # default: .
+  agentconfig-doctor --list        # show the checks it knows about
+
+It self-discovers its sibling tools: a check that isn't in your checkout yet is simply
+skipped, and appears automatically once it's there. Exit 0 = every check clean, 1 = at
+least one check reported a failing (HIGH) finding or errored.
+"""
+import os
+import re
+import subprocess
+import sys
+
+GRN = "\033[32m"; RED = "\033[31m"; YEL = "\033[33m"; DIM = "\033[2m"; BLD = "\033[1m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    GRN = RED = YEL = DIM = BLD = RST = ""
+
+# tool dir name -> (target relative to repo, kind). kind: 'file' | 'dir' | 'repo' | 'context'
+CHECKS = [
+    ("perm-audit",    ".claude/settings.json", "file"),
+    ("hooklint",      ".claude/settings.json", "file"),
+    ("mcp-audit",     ".mcp.json",             "file"),
+    ("trifecta-scan", ".",                     "repo"),
+    ("skill-lint",    "SKILL.md",              "file"),
+    ("context-lint",  None,                    "context"),
+    ("subagentlint",  ".claude/agents",        "dir"),
+    ("commandlint",   ".claude/commands",      "dir"),
+    ("ignorelint",    ".",                     "repo"),
+]
+CONTEXT_FILES = ("CLAUDE.md", "AGENTS.md")
+COUNT_RE = re.compile(r"(\d+)\s+finding")
+HIGH_RE = re.compile(r"(\d+)\s+high")
+
+
+def tools_root():
+    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+
+def tool_path(name):
+    p = os.path.join(tools_root(), name, name)
+    return p if os.path.isfile(p) else None
+
+
+def targets_for(repo, rel, kind):
+    """Return the list of args to pass, or None if the check doesn't apply here."""
+    if kind == "repo":
+        return [repo]
+    if kind == "context":
+        present = [os.path.join(repo, f) for f in CONTEXT_FILES if os.path.exists(os.path.join(repo, f))]
+        return present or None
+    t = os.path.join(repo, rel)
+    return [t] if os.path.exists(t) else None
+
+
+def run_check(path, args):
+    try:
+        env = dict(os.environ, NO_COLOR="1")
+        r = subprocess.run([path, *args], capture_output=True, text=True, env=env, timeout=60)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except (OSError, subprocess.SubprocessError):
+        try:
+            r = subprocess.run([sys.executable, path, *args], capture_output=True, text=True, timeout=60)
+            return r.returncode, (r.stdout or "") + (r.stderr or "")
+        except Exception as e:                                   # noqa: BLE001
+            return 2, str(e)
+
+
+def summarise(rc, out):
+    last = ""
+    for ln in out.splitlines():
+        if "finding" in ln:
+            last = ln
+    cnt = COUNT_RE.search(last)
+    hi = HIGH_RE.search(last)
+    n = int(cnt.group(1)) if cnt else 0
+    h = int(hi.group(1)) if hi else 0
+    if rc >= 2:
+        return "error", f"{RED}error{RST}", out.strip().splitlines()[-1][:60] if out.strip() else ""
+    if rc == 1:
+        label = f"✗ {n} finding(s)" if n else "✗ issues found"
+        return "fail", f"{RED}{label}{RST}", f"{h} high" if h else ""
+    if n:
+        return "notes", f"{YEL}● {n} note(s){RST}", ""
+    return "ok", f"{GRN}✓ clean{RST}", ""
+
+
+def main():
+    argv = [a for a in sys.argv[1:] if not a.startswith("-")]
+    flags = [a for a in sys.argv[1:] if a.startswith("-")]
+    if "--list" in flags:
+        print("agentconfig-doctor — checks:\n")
+        for name, rel, kind in CHECKS:
+            here = "present" if tool_path(name) else "not in checkout"
+            tgt = {"repo": "<repo>", "context": "CLAUDE.md / AGENTS.md"}.get(kind, rel)
+            print(f"  {name:<16} {tgt:<24} {DIM}({here}){RST}")
+        sys.exit(0)
+
+    repo = argv[0] if argv else "."
+    if not os.path.isdir(repo):
+        sys.stderr.write(f"agentconfig-doctor: not a directory: {repo}\n"); sys.exit(2)
+
+    label = repo if repo == "." else os.path.relpath(repo)
+    print(f"{BLD}agentconfig-doctor{RST} — {label}\n")
+
+    ran = skipped_no_tool = skipped_no_target = 0
+    clean = issues = 0
+    rows = []
+    for name, rel, kind in CHECKS:
+        path = tool_path(name)
+        if not path:
+            skipped_no_tool += 1
+            continue
+        args = targets_for(repo, rel, kind)
+        if args is None:
+            skipped_no_target += 1
+            rows.append((name, f"{DIM}– n/a (no target){RST}", ""))
+            continue
+        rc, out = run_check(path, args)
+        status, label_s, extra = summarise(rc, out)
+        ran += 1
+        if status in ("fail", "error"):
+            issues += 1
+        elif status == "ok":
+            clean += 1
+        rows.append((name, label_s, extra))
+
+    width = max((len(r[0]) for r in rows), default=12)
+    for name, label_s, extra in rows:
+        line = f"  {name:<{width}}  {label_s}"
+        if extra:
+            line += f"   {DIM}{extra}{RST}"
+        print(line)
+
+    print()
+    parts = [f"ran {ran}", f"{clean} clean"]
+    if issues:
+        parts.append(f"{RED}{issues} with issues{RST}")
+    if skipped_no_target:
+        parts.append(f"{skipped_no_target} n/a")
+    if skipped_no_tool:
+        parts.append(f"{DIM}{skipped_no_tool} not in checkout{RST}")
+    print("  " + ", ".join(parts) + ".")
+    sys.exit(1 if issues else 0)
+
+
+if __name__ == "__main__":
+    main()
