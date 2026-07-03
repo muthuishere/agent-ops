@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""hooklint — are your Claude Code hooks footguns waiting to fire?
+
+perm-audit checks what your `.claude/settings.json` lets the agent do; hooklint
+checks the other half of that file: the `hooks` block. Hooks run *automatically*
+on agent events (every tool call, every prompt, every stop), so a typo'd event
+name silently never fires, a blanket PreToolUse matcher can wedge every tool, and
+a `command` that echoes a secret or runs `rm -rf` does it without ever asking you.
+
+  hooklint [settings.json]   # default: ./.claude/settings.json
+
+Exit 0 = no high-severity issues, 1 = at least one HIGH/CRITICAL finding.
+
+Heuristic, not a sandbox: hooklint reads the config statically — it flags shapes
+that don't fire and commands that look dangerous; it does not execute anything.
+"""
+import json
+import os
+import re
+import sys
+
+RED = "\033[31m"; YEL = "\033[33m"; CYN = "\033[36m"; DIM = "\033[2m"; RST = "\033[0m"
+if not sys.stdout.isatty():
+    RED = YEL = CYN = DIM = RST = ""
+SEV = {"CRITICAL": RED, "HIGH": RED, "WARN": YEL, "INFO": CYN}
+
+# The canonical Claude Code hook events. A key that isn't one of these is a
+# silent no-op — the hook is configured but never runs.
+VALID_EVENTS = {
+    "PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification",
+    "Stop", "SubagentStop", "SessionStart", "SessionEnd", "PreCompact",
+}
+_LOWER = {e.lower(): e for e in VALID_EVENTS}
+
+# matchers that target every event of their kind (run on EVERY tool call)
+BLANKET = {"", "*", ".*", "**"}
+
+# commands that should never auto-run on a matched event
+DESTRUCTIVE = [
+    (re.compile(r"\brm\s+-[a-z]*[rf]"), "rm -rf"),
+    (re.compile(r"\bgit\s+push\b.*(--force|--force-with-lease|(^|\s)-f(\s|$))"), "git push --force"),
+    (re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba)?sh\b"), "curl … | sh"),
+    (re.compile(r"\beval\b"), "eval"),
+    (re.compile(r"--no-verify\b"), "--no-verify (skips other hooks/checks)"),
+]
+# a command that prints an env var or literal that looks like a secret
+SECRET_VAR = re.compile(
+    r"\b(echo|printf|print|cat)\b[^\n]*\$\{?[A-Za-z_]*"
+    r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)", re.IGNORECASE)
+DUMP_ENV = re.compile(r"\b(printenv|env)\b(?!\s+[A-Za-z_])")
+SECRET_LITERAL = re.compile(r"\b(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|"
+                            r"xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b")
+EGRESS = re.compile(r"\b(curl|wget|nc|scp|ssh)\b")
+
+
+def scan_command(cmd, event, matcher, add):
+    """Flag dangerous/leaky shapes in a single hook command string."""
+    if not isinstance(cmd, str) or not cmd.strip():
+        add("WARN", f"{event} hook has an empty command",
+            "a hook entry with no command does nothing — remove it or fill it in.")
+        return
+    where = f"{event}" + (f" (matcher '{matcher}')" if matcher not in (None, "") else "")
+    for rx, label in DESTRUCTIVE:
+        if rx.search(cmd):
+            add("HIGH", f"{where} hook auto-runs a destructive command ({label})",
+                "this runs on every matching event without asking. "
+                f"Command: {cmd.strip()[:80]}")
+            break
+    if SECRET_VAR.search(cmd) or DUMP_ENV.search(cmd):
+        add("HIGH", f"{where} hook prints environment secrets into hook output",
+            "echoing a *_KEY/_TOKEN/_SECRET var (or a bare env/printenv) can surface the value "
+            "in logs/transcripts. Reference secrets only where a command consumes them.")
+    if SECRET_LITERAL.search(cmd):
+        add("HIGH", f"{where} hook contains a hard-coded secret-looking literal",
+            "looks like an API key/token baked into the command. Move it to the environment.")
+    elif EGRESS.search(cmd):
+        add("WARN", f"{where} hook makes a network call on every matching event",
+            "egress in a hook adds latency and is an exfiltration path if the command is ever "
+            "fed untrusted input. Keep it scoped and offline where you can.")
+
+
+def scan_leaf(leaf, event, matcher, add):
+    """A single {type, command} entry inside a hook group."""
+    if not isinstance(leaf, dict):
+        add("WARN", f"{event} hook entry is not an object",
+            "each entry must be {\"type\": \"command\", \"command\": \"…\"}.")
+        return
+    htype = leaf.get("type")
+    if htype != "command":
+        add("WARN", f"{event} hook entry has type '{htype}' (only 'command' runs)",
+            "Claude Code only executes hooks of type 'command'; this one is ignored.")
+    scan_command(leaf.get("command"), event, matcher, add)
+
+
+def audit(settings):
+    findings = []
+    add = lambda s, t, d: findings.append((s, t, d))
+    if not isinstance(settings, dict):
+        add("WARN", "settings is not a JSON object", "expected an object with a 'hooks' key.")
+        return findings
+    hooks = settings.get("hooks")
+    if hooks is None:
+        return findings  # handled by caller as the clean baseline
+    if not isinstance(hooks, dict):
+        add("HIGH", "'hooks' is not an object", "expected { <Event>: [ {matcher, hooks:[…]} ] }.")
+        return findings
+
+    for event, groups in hooks.items():
+        # 1. unknown / mis-cased event name => silent no-op
+        if event not in VALID_EVENTS:
+            hint = _LOWER.get(event.lower())
+            if hint:
+                add("HIGH", f"hook event '{event}' is mis-cased — did you mean '{hint}'?",
+                    "event keys are case-sensitive; this block is silently ignored and never runs.")
+            else:
+                add("HIGH", f"hook event '{event}' is not a real Claude Code event",
+                    "it is silently ignored. Valid: " + ", ".join(sorted(VALID_EVENTS)) + ".")
+            continue
+
+        if not isinstance(groups, list):
+            add("HIGH", f"{event} must be a list of matcher groups",
+                "expected [ {\"matcher\": \"…\", \"hooks\": [ {…} ] } ]; this block won't fire.")
+            continue
+
+        for group in groups:
+            if not isinstance(group, dict):
+                add("WARN", f"{event} matcher group is not an object", "expected {matcher, hooks:[…]}.")
+                continue
+            # 2. flat/legacy shape: a leaf where a group should be
+            if "hooks" not in group and ("command" in group or "type" in group):
+                add("HIGH", f"{event} entry is missing its matcher/hooks wrapper",
+                    "wrap it: {\"matcher\": \"<tool>\", \"hooks\": [ {\"type\":\"command\",\"command\":\"…\"} ]}. "
+                    "As written it does not fire.")
+                continue
+            matcher = group.get("matcher")
+            # 3. invalid matcher regex
+            if isinstance(matcher, str) and matcher not in BLANKET:
+                try:
+                    re.compile(matcher)
+                except re.error as e:
+                    add("WARN", f"{event} matcher '{matcher}' is not a valid regex ({e})",
+                        "an invalid matcher won't match the tools you expect.")
+            # 4. blanket matcher on the gating events
+            if event in ("PreToolUse", "PostToolUse") and (matcher in (None, "") or
+                                                            (isinstance(matcher, str) and matcher.strip() in BLANKET)):
+                extra = (" and a non-zero exit blocks the tool — a flaky command here can wedge every tool call"
+                         if event == "PreToolUse" else "")
+                add("WARN", f"{event} hook runs on EVERY tool call (blanket matcher)",
+                    f"it fires before/after all tools, adding latency{extra}. Scope the matcher to the tools you mean.")
+            # 5. Stop-loop awareness
+            leaves = group.get("hooks")
+            if not isinstance(leaves, list):
+                add("WARN", f"{event} group has no 'hooks' list", "add \"hooks\": [ {…} ].")
+                continue
+            if not leaves:
+                add("INFO", f"{event} matcher group has an empty hooks list", "nothing runs for it.")
+            for leaf in leaves:
+                scan_leaf(leaf, event, matcher, add)
+            if event in ("Stop", "SubagentStop"):
+                add("INFO", f"{event} hook present — guard against stop-loops",
+                    "a Stop hook that exits 2 forces the agent to keep going; make sure it can't fail "
+                    "spuriously or you'll loop.")
+    return findings
+
+
+def main():
+    path = sys.argv[1] if len(sys.argv) > 1 else ".claude/settings.json"
+    if not os.path.exists(path):
+        print(f"hooklint: no {path} — no hooks to lint. (Hooks are opt-in; nothing here is the safe default.)")
+        sys.exit(0)
+    try:
+        settings = json.load(open(path))
+    except (OSError, json.JSONDecodeError) as e:
+        sys.stderr.write(f"hooklint: cannot read {path}: {e}\n"); sys.exit(2)
+
+    if isinstance(settings, dict) and not settings.get("hooks"):
+        print(f"hooklint — {path}\n\n  ✓ no hooks configured (nothing to lint).")
+        sys.exit(0)
+
+    findings = audit(settings)
+    print(f"hooklint — {path}\n")
+    if not findings:
+        print("  ✓ no hook footguns found.")
+        sys.exit(0)
+    order = {"CRITICAL": 0, "HIGH": 1, "WARN": 2, "INFO": 3}
+    for sev, title, detail in sorted(findings, key=lambda f: order[f[0]]):
+        print(f"  {SEV[sev]}● {sev:<8}{RST} {title}")
+        print(f"             {DIM}{detail}{RST}")
+    high = sum(1 for s, _, _ in findings if s in ("CRITICAL", "HIGH"))
+    print()
+    print(f"  {RED if high else YEL}{len(findings)} finding(s)"
+          + (f", {high} high-severity" if high else "") + f".{RST}")
+    sys.exit(1 if high else 0)
+
+
+if __name__ == "__main__":
+    main()
