@@ -34,10 +34,22 @@ echo "$o" | grep -q "n/a (no target)" && ok "T5 absent targets shown n/a" || bad
 echo "$o" | grep -qE "^  ran [0-9]" && ok "T5b summary line present" || bad "T5b" "$o"
 "$DOC" "$d" >/dev/null 2>&1; [ "$?" -eq 0 ] && ok "T6 empty repo exits 0" || bad "T6 exit" "rc"
 
-# --- T7: --list shows a present sibling and an absent one
+# --- T7: --list shows a present sibling and an absent one. agent-ops now bundles
+# every tool agentconfig-doctor checks for, so there's no naturally-absent sibling
+# left in a real checkout — build a controlled PARTIAL checkout instead (copy the
+# doctor + only some siblings into a temp dir) to exercise the present/absent split.
 o=$("$DOC" --list 2>&1)
 echo "$o" | grep -q "perm-audit" && echo "$o" | grep -q "present" && ok "T7 --list shows present tool" || bad "T7" "$o"
-echo "$o" | grep -qE "hooklint.*not in checkout|subagentlint.*not in checkout" && ok "T7b --list flags not-in-checkout tools" || bad "T7b" "$o"
+
+partial=$(mktemp -d /tmp/doc-partial.XXXXXX)
+mkdir -p "$partial/agentconfig-doctor" "$partial/perm-audit"
+cp "$DOC" "$partial/agentconfig-doctor/agentconfig-doctor"
+cp "$HERE/perm-audit/perm-audit" "$partial/perm-audit/perm-audit" 2>/dev/null || printf '#!/usr/bin/env python3\n' > "$partial/perm-audit/perm-audit"
+chmod +x "$partial/agentconfig-doctor/agentconfig-doctor" "$partial/perm-audit/perm-audit"
+o=$("$partial/agentconfig-doctor/agentconfig-doctor" --list 2>&1)
+echo "$o" | grep -q "perm-audit.*present" && ok "T7b --list shows the bundled sibling as present" || bad "T7b present" "$o"
+echo "$o" | grep -qE "hooklint.*not in checkout" && ok "T7c --list flags a missing sibling as not-in-checkout" || bad "T7c" "$o"
+rm -rf "$partial"
 
 # --- T8: an .mcp.json target makes mcp-audit a RAN row (not n/a)
 d=$(newrepo)
