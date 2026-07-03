@@ -1,0 +1,54 @@
+name: test
+
+# Every tool ships a `test_<tool>.sh` next to its script. This workflow discovers and
+# runs them all — no per-tool wiring, so a new tool's suite is picked up automatically.
+# The tools are single-file (Python 3 / bash) with no deps beyond a stock interpreter,
+# so the job needs nothing but the runner's preinstalled python3 + bash.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show interpreter versions
+        run: |
+          bash --version | head -1
+          python3 --version
+
+      - name: Discover and run every test_*.sh
+        run: |
+          set -uo pipefail
+          shopt -s nullglob globstar
+          mapfile -t suites < <(printf '%s\n' **/test_*.sh | sort)
+          if [ "${#suites[@]}" -eq 0 ]; then
+            echo "no test_*.sh suites found" >&2
+            exit 1
+          fi
+          echo "found ${#suites[@]} suite(s):"
+          printf '  %s\n' "${suites[@]}"
+          echo
+          fails=0
+          for s in "${suites[@]}"; do
+            echo "::group::$s"
+            chmod +x "$s" || true
+            if bash "$s"; then
+              echo "OK   $s"
+            else
+              echo "FAIL $s"
+              fails=$((fails+1))
+            fi
+            echo "::endgroup::"
+          done
+          echo
+          if [ "$fails" -ne 0 ]; then
+            echo "$fails suite(s) failed" >&2
+            exit 1
+          fi
+          echo "all ${#suites[@]} suite(s) passed"
